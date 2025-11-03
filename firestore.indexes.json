@@ -1,0 +1,28 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "complaints",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "members",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "role", "order": "ASCENDING"},
+        {"fieldPath": "name", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "visitors",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "visitDate", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

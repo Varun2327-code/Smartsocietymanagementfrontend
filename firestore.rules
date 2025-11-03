@@ -1,0 +1,563 @@
+//firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      let role = exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'resident';
+      return role == 'user' ? 'resident' : role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    function isSecurity() {
+      return isAuthenticated() && getUserRole() == 'security';
+    }
+
+    function isResident() {
+      return isAuthenticated() && getUserRole() == 'resident';
+    }
+    
+    function isOwnDocument(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocumentOwner(fieldName) {
+      return isAuthenticated() && request.auth.uid == resource.data[fieldName];
+    }
+    
+    function isCreatingOwnDocument(fieldName) {
+      return isAuthenticated() && request.auth.uid == request.resource.data[fieldName];
+    }
+    
+    // Validation functions
+    function isValidComplaintStatus(status) {
+      return status in ['pending', 'in-progress', 'resolved', 'closed'];
+    }
+    
+    function isValidMemberRole(role) {
+      return role in ['admin', 'resident', 'security'];
+    }
+    
+    function isValidPriority(priority) {
+      return priority in ['low', 'medium', 'high', 'urgent'];
+    }
+    
+    function isValidVisitorStatus(status) {
+      return status in ['pending', 'approved', 'rejected', 'completed', 'Entered', 'Exited'];
+    }
+    
+    function isValidEventStatus(status) {
+      return status in ['scheduled', 'ongoing', 'completed', 'cancelled'];
+    }
+    
+    function isValidMaintenanceStatus(status) {
+      return status in ['requested', 'scheduled', 'in-progress', 'completed', 'cancelled'];
+    }
+    
+
+
+    function isPastTimestamp(ts) {
+      return ts is timestamp && ts < request.time;
+    }
+    
+    function isValidPhoneNumber(phone) {
+      return phone is string && phone.matches("^(\\+)?[0-9]{6,15}$");
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$');
+    }
+    
+
+    
+    // Members collection - Fine-grained role-based access
+    match /members/{memberId} {
+      // Admins can manage all members
+      allow read, write: if isAdmin();
+      
+      // Security can read all members but not modify
+      allow read: if isSecurity();
+      
+      // Residents can only read their own member document
+      allow read: if isResident() && isOwnDocument(memberId);
+      
+      // Data validation rules
+      allow create: if 
+        request.resource.data.role is string &&
+        isValidMemberRole(request.resource.data.role) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.email is string &&
+        isValidEmail(request.resource.data.email) &&
+        request.resource.data.phone is string &&
+        isValidPhoneNumber(request.resource.data.phone) &&
+        request.resource.data.unit is string &&
+        request.resource.data.unit.size() >= 1;
+      
+      allow update: if 
+        resource.data.role is string &&
+        isValidMemberRole(resource.data.role) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.email is string &&
+        isValidEmail(request.resource.data.email) &&
+        request.resource.data.phone is string &&
+        isValidPhoneNumber(request.resource.data.phone);
+    }
+    
+    // Complaints collection - Document-level access control
+    match /complaints/{complaintId} {
+      // Admins can manage all complaints
+      allow read, write: if isAdmin();
+
+      // Security can read all complaints and update status
+      allow read: if isSecurity();
+      allow update: if isSecurity() &&
+        request.resource.data.keys().hasOnly(['status', 'updatedAt', 'assignedTo']) &&
+        isValidComplaintStatus(request.resource.data.status);
+
+      // Users can read and manage their own complaints
+      allow read: if isAuthenticated() && isDocumentOwner('submittedBy');
+      allow create: if isAuthenticated() && isCreatingOwnDocument('submittedBy');
+      allow update: if isAuthenticated() && isDocumentOwner('submittedBy') &&
+        request.resource.data.keys().hasOnly(['description', 'updatedAt']);
+
+      // Data validation
+      allow create: if
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 5 &&
+        request.resource.data.title.size() <= 100 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 10 &&
+        request.resource.data.description.size() <= 500 &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() >= 3 &&
+        request.resource.data.priority is string &&
+        isValidPriority(request.resource.data.priority) &&
+        request.resource.data.status is string &&
+        isValidComplaintStatus(request.resource.data.status) &&
+        request.resource.data.submittedBy is string;
+
+      allow update: if
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 5 &&
+        request.resource.data.title.size() <= 100 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 10 &&
+        request.resource.data.description.size() <= 500;
+    }
+
+    // Feedbacks collection - Similar to complaints but for feedback entries
+    match /feedbacks/{feedbackId} {
+      // Admins can manage all feedbacks
+      allow read, write: if isAdmin();
+
+      // Security can read all feedbacks
+      allow read: if isSecurity();
+
+      // Users can read all feedbacks but only manage their own
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isCreatingOwnDocument('submittedBy');
+      allow update: if isAuthenticated() && isDocumentOwner('submittedBy') &&
+        request.resource.data.keys().hasOnly(['description', 'updatedAt', 'status']);
+
+      // Data validation
+      allow create: if
+        request.resource.data.type is string &&
+        request.resource.data.type in ['Complaint', 'Feedback'] &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 5 &&
+        request.resource.data.description.size() <= 500 &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() >= 3 &&
+        request.resource.data.status is string &&
+        request.resource.data.status in ['Pending', 'Resolved', 'Received'] &&
+        request.resource.data.submittedBy is string;
+
+      allow update: if
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 5 &&
+        request.resource.data.description.size() <= 500;
+    }
+    
+    // Visitors collection - Time-based and role-based access
+    match /visitors/{visitorId} {
+      // Admins can manage all visitors
+      allow read, write: if isAdmin();
+
+      // Security can manage visitors (approve, reject, mark complete)
+      allow read, write: if isSecurity();
+
+      // Residents can create visitors and read visitors for their flat
+      allow read: if isResident() && (
+        isDocumentOwner('submittedBy') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && resource.data.flatNumber == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.flatNumber)
+      );
+      allow create: if isResident() && isCreatingOwnDocument('submittedBy');
+      allow update: if isResident() && isDocumentOwner('submittedBy') &&
+        request.resource.data.keys().hasOnly(['status', 'exitTime']);
+
+      // Data validation
+      allow create: if
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 50 &&
+        request.resource.data.purpose is string &&
+        request.resource.data.purpose.size() >= 5 &&
+        request.resource.data.purpose.size() <= 200 &&
+        request.resource.data.flatNumber is string &&
+        request.resource.data.flatNumber.size() >= 1 &&
+        request.resource.data.timestamp is timestamp &&
+        request.resource.data.status is string &&
+        isValidVisitorStatus(request.resource.data.status) &&
+        request.resource.data.submittedBy is string &&
+        (!('vehicleNumber' in request.resource.data) || request.resource.data.vehicleNumber is string);
+
+      allow update: if
+        request.resource.data.status is string &&
+        isValidVisitorStatus(request.resource.data.status);
+    }
+    
+    // Guards collection - Security and admin management
+    match /guards/{guardId} {
+      // Admins can manage all guards
+      allow read, write: if isAdmin();
+
+      // Security can manage guards (add, edit, delete)
+      allow read, write: if isSecurity();
+
+      // Residents can read guards (for contact information)
+      allow read: if isResident();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 50 &&
+        request.resource.data.contact is string &&
+        request.resource.data.contact.size() >= 10 &&
+        request.resource.data.contact.size() <= 15 &&
+        request.resource.data.shift is string &&
+        request.resource.data.shift in ['Day', 'Night'] &&
+        request.resource.data.status is bool;
+    }
+
+    // Gate passes - Security and admin only
+    match /gate_passes/{passId} {
+      allow read, write: if isAdmin() || isSecurity();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.visitorName is string &&
+        request.resource.data.visitorName.size() >= 2 &&
+        request.resource.data.flatNumber is string &&
+        request.resource.data.flatNumber.size() >= 1 &&
+        request.resource.data.validFrom is timestamp &&
+        request.resource.data.validUntil is timestamp &&
+        request.resource.data.validUntil > request.resource.data.validFrom;
+    }
+    
+    // Security logs - Security and admin only, with validation
+    match /security_logs/{logId} {
+      allow read, write: if isAdmin() || isSecurity();
+      
+      // Data validation - security logs should be immutable once created
+      allow create: if
+        request.resource.data.type is string &&
+        request.resource.data.type in ['patrol', 'incident', 'visitor', 'maintenance'] &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 5 &&
+        request.resource.data.timestamp is timestamp &&
+        isPastTimestamp(request.resource.data.timestamp) &&
+        request.resource.data.officerId is string;
+      
+      allow update: if false; // Security logs are immutable after creation
+    }
+    
+    // Events - Read access for all, create for authenticated users, write for admins
+    match /events/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 1 &&
+        request.resource.data.name.size() <= 100 &&
+        request.resource.data.date is string &&
+        request.resource.data.time is string &&
+        request.resource.data.location is string &&
+        request.resource.data.location.size() >= 1 &&
+        request.resource.data.location.size() <= 100 &&
+        (!('category' in request.resource.data) || request.resource.data.category is string) &&
+        (!('description' in request.resource.data) || request.resource.data.description is string) &&
+        (!('rsvpCount' in request.resource.data) || request.resource.data.rsvpCount is number) &&
+        request.resource.data.status is string &&
+        request.resource.data.status in ['pending', 'approved', 'rejected'] &&
+        request.resource.data.timestamp is timestamp;
+    }
+    
+    // Maintenance - Read access for residents, write for admins/security
+    match /maintenance/{maintenanceId} {
+      // Admins and security can manage maintenance
+      allow read, write: if isAdmin() || isSecurity();
+      
+      // Residents can read and create maintenance requests
+      allow read: if isResident() && isDocumentOwner('requestedBy');
+      allow create: if isResident() && isCreatingOwnDocument('requestedBy');
+      
+      // Data validation
+      allow create: if
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 5 &&
+        request.resource.data.title.size() <= 100 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 10 &&
+        request.resource.data.description.size() <= 500 &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() >= 3 &&
+        request.resource.data.priority is string &&
+        isValidPriority(request.resource.data.priority) &&
+        request.resource.data.status is string &&
+        isValidMaintenanceStatus(request.resource.data.status) &&
+        request.resource.data.requestedBy is string;
+    }
+    
+    // Announcements - Read access for all, write for all authenticated users
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.content is string &&
+        request.resource.data.content.size() >= 10 &&
+        request.resource.data.content.size() <= 1000 &&
+        request.resource.data.userId is string &&
+        request.resource.data.userName is string &&
+        request.resource.data.createdAt is timestamp &&
+        (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp) &&
+        (!('relatedPollId' in request.resource.data) || request.resource.data.relatedPollId is string);
+    }
+
+    // Polls collection - Read access for all, write for admins/security
+    match /polls/{pollId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isSecurity();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.question is string &&
+        request.resource.data.question.size() >= 5 &&
+        request.resource.data.question.size() <= 200 &&
+        request.resource.data.options is list &&
+        request.resource.data.options.size() >= 2 &&
+        request.resource.data.options.size() <= 10 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdBy is string &&
+        (!('expiresAt' in request.resource.data) || request.resource.data.expiresAt is timestamp);
+    }
+    
+    // User profile data - Users can only manage their own data
+    match /user/{userId} {
+      allow read: if isAuthenticated() && isOwnDocument(userId);
+      allow write: if isOwnDocument(userId);
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.email is string &&
+        isValidEmail(request.resource.data.email) &&
+        request.resource.data.phone is string &&
+        isValidPhoneNumber(request.resource.data.phone) &&
+        request.resource.data.unit is string &&
+        request.resource.data.unit.size() >= 1;
+    }
+
+    // Users collection - User profile data with role-based updates
+    match /users/{userId} {
+      allow read: if request.auth.uid == userId;
+      allow read: if isResident();
+      allow create: if request.auth.uid == userId;
+      allow update: if request.auth.uid == userId
+                    && !("flatNumber" in request.resource.data.keys())
+                    && !("role" in request.resource.data.keys());
+      allow update: if getUserRole() == "admin";
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.email is string &&
+        isValidEmail(request.resource.data.email) &&
+        (!('phone' in request.resource.data) || (request.resource.data.phone is string && isValidPhoneNumber(request.resource.data.phone))) &&
+        (!('mobile' in request.resource.data) || (request.resource.data.mobile is string && isValidPhoneNumber(request.resource.data.mobile)));
+    }
+    
+    // Documents collection - Residents manage their own, admins manage all
+    match /documents/{documentId} {
+      // Admins can manage all documents (view, approve, reject)
+      allow read, write: if isAdmin();
+
+      // Security can read all documents
+      allow read: if isSecurity();
+
+      // Residents can only create and manage their own documents
+      allow read: if isResident() && isDocumentOwner('userId');
+      allow create: if isResident() && isCreatingOwnDocument('userId');
+      allow update: if isResident() && isDocumentOwner('userId') &&
+        request.resource.data.keys().hasOnly(['description', 'updatedAt']);
+
+      // Data validation for document creation by residents
+      allow create: if
+        request.resource.data.userId is string &&
+        request.resource.data.userEmail is string &&
+        isValidEmail(request.resource.data.userEmail) &&
+        request.resource.data.documentType is string &&
+        request.resource.data.documentType in ['PAN Card', 'Aadhaar Card', 'Passport', 'Rent Agreement'] &&
+        request.resource.data.status is string &&
+        request.resource.data.status == 'pending' &&
+        (!('fileURL' in request.resource.data) || request.resource.data.fileURL is string) &&
+        (!('storagePath' in request.resource.data) || request.resource.data.storagePath is string) &&
+        (!('fileName' in request.resource.data) || request.resource.data.fileName is string) &&
+        request.resource.data.archived is bool &&
+        request.resource.data.archived == false;
+
+      // Data validation for document updates (admin approve/reject)
+      allow update: if
+        request.resource.data.status is string &&
+        request.resource.data.status in ['pending', 'approved', 'rejected'] &&
+        (!('rejectReason' in request.resource.data) ||
+         (request.resource.data.rejectReason is string &&
+          request.resource.data.rejectReason.size() >= 5 &&
+          request.resource.data.rejectReason.size() <= 500)) &&
+        (!('reviewedAt' in request.resource.data) ||
+         request.resource.data.reviewedAt is timestamp);
+    }
+
+    // Payment collections - Users can read their own, admins can manage all
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() &&
+                   (isAdmin() || isDocumentOwner('userId'));
+      allow write: if isAdmin();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.amount is number &&
+        request.resource.data.amount > 0 &&
+        request.resource.data.currency is string &&
+        request.resource.data.currency.size() == 3 &&
+        request.resource.data.status is string &&
+        request.resource.data.status in ['pending', 'paid', 'failed', 'refunded'] &&
+        request.resource.data.dueDate is timestamp;
+    }
+
+    match /payment_history/{historyId} {
+      allow read: if isAuthenticated() &&
+                   (isAdmin() || isDocumentOwner('userId'));
+      allow write: if isAdmin();
+    }
+
+    // Messages collection - Chat messages for authenticated users
+    match /messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() >= 1 &&
+        request.resource.data.text.size() <= 500 &&
+        request.resource.data.uid is string &&
+        request.resource.data.name is string &&
+        request.resource.data.timestamp is timestamp;
+      allow update: if isAuthenticated() &&
+        (request.auth.uid == resource.data.uid || getUserRole() == 'admin') &&
+        request.resource.data.keys().hasOnly(['text']) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() >= 1 &&
+        request.resource.data.text.size() <= 500;
+      allow delete: if isAuthenticated() &&
+        (request.auth.uid == resource.data.uid || getUserRole() == 'admin');
+    }
+
+    // Deliveries collection - Security manages deliveries
+    match /deliveries/{deliveryId} {
+      // Admins can manage all deliveries
+      allow read, write: if isAdmin();
+
+      // Security can manage deliveries
+      allow read, write: if isSecurity();
+
+      // Residents can read deliveries for their flat
+      allow read: if isResident();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.recipientName is string &&
+        request.resource.data.recipientName.size() >= 2 &&
+        request.resource.data.recipientName.size() <= 50 &&
+        request.resource.data.itemDescription is string &&
+        request.resource.data.itemDescription.size() >= 1 &&
+        request.resource.data.itemDescription.size() <= 100 &&
+        request.resource.data.flatNumber is string &&
+        request.resource.data.flatNumber.size() >= 1 &&
+        request.resource.data.status is string &&
+        request.resource.data.status in ['Pending', 'Collected'] &&
+        request.resource.data.timestamp is timestamp &&
+        (!('guardId' in request.resource.data) || request.resource.data.guardId is string);
+    }
+
+    // Alerts collection - Security creates alerts, admins manage
+    match /alerts/{alertId} {
+      // Admins can manage all alerts
+      allow read, write: if isAdmin();
+
+      // Security can create and update alerts
+      allow read, write: if isSecurity();
+
+      // Residents can read alerts
+      allow read: if isResident();
+
+      // Data validation
+      allow create, update: if
+        request.resource.data.message is string &&
+        request.resource.data.message.size() >= 5 &&
+        request.resource.data.message.size() <= 500 &&
+        request.resource.data.priority is string &&
+        request.resource.data.priority in ['Low', 'Medium', 'High', 'Critical'] &&
+        request.resource.data.type is string &&
+        request.resource.data.type in ['General', 'Emergency', 'Security', 'Maintenance'] &&
+        request.resource.data.status is string &&
+        request.resource.data.status in ['Active', 'Resolved'] &&
+        request.resource.data.timestamp is timestamp &&
+        (!('sentBy' in request.resource.data) || request.resource.data.sentBy is string);
+    }
+
+    // Security alerts collection - Security creates alerts, admins read
+    match /security_alerts/{alertId} {
+      // Admins can read all alerts
+      allow read, write: if isAdmin();
+
+      // Security can create alerts
+      allow create: if isSecurity();
+
+      // Data validation
+      allow create: if
+        request.resource.data.message is string &&
+        request.resource.data.message.size() >= 5 &&
+        request.resource.data.message.size() <= 500 &&
+        request.resource.data.level is string &&
+        request.resource.data.level in ['low', 'medium', 'high'] &&
+        request.resource.data.time is timestamp;
+    }
+  }
+}
