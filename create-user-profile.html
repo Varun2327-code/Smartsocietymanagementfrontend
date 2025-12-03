@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create User Profile</title>
+    <script type="module">
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyA7JJgqRRRsIJffeFbHoKIMpJZcg2FVKAY",
+            authDomain: "smart-society-b3836.firebaseapp.com",
+            projectId: "smart-society-b3836",
+            storageBucket: "smart-society-b3836.firebasestorage.app",
+            messagingSenderId: "383518000680",
+            appId: "1:383518000680:web:2dadc110fa8076770ad71d",
+            measurementId: "G-R8B4Q4HMN9"
+        };
+
+        // Initialize Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // User details
+        const userId = 'KRGbmJjTR5QQZKbniBQAedkYn5M2';
+        const userEmail = 'varun@gmail.com';
+        const userName = 'Varun';
+
+        async function createUserProfile() {
+            try {
+                console.log('Creating user profile...');
+
+                // Check if user profile already exists
+                const userDocRef = doc(db, 'users', userId);
+                const userDocSnap = await getDoc(userDocRef);
+
+                if (userDocSnap.exists()) {
+                    console.log('User profile already exists:', userDocSnap.data());
+                    document.getElementById('result').innerHTML = '<p style="color: green;">✅ User profile already exists!</p>';
+                    return;
+                }
+
+                // Create the user document
+                await setDoc(userDocRef, {
+                    uid: userId,
+                    name: userName,
+                    email: userEmail,
+                    role: 'resident',
+                    apartment: 'A-101',
+                    wing: 'A',
+                    mobile: '9876543210',
+                    members: 1,
+                    status: 'active',
+                    lastPayment: 0,
+                    complaintsResolved: 0,
+                    bio: '',
+                    emergencyContact: null,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+
+                console.log('User profile created successfully!');
+                document.getElementById('result').innerHTML = '<p style="color: green;">✅ User profile created successfully!</p>';
+
+            } catch (error) {
+                console.error('Error creating user profile:', error);
+                document.getElementById('result').innerHTML = '<p style="color: red;">❌ Error: ' + error.message + '</p>';
+            }
+        }
+
+        // Auto-run when page loads
+        window.addEventListener('load', createUserProfile);
+    </script>
+</head>
+<body>
+    <h1>Creating User Profile...</h1>
+    <div id="result">Please wait...</div>
+    <p>Check the browser console for detailed logs.</p>
+</body>
+</html>

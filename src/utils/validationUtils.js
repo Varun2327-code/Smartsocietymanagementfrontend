@@ -41,19 +41,12 @@ export const memberValidationSchema = {
   status: (value) => validateRequired(value, 'Status')
 };
 
-
 export const visitorValidationSchema = {
-
   name: (value) => validateName(value),
-
   purpose: (value) => validateRequired(value, 'Purpose'),
-
   flatNumber: (value) => validateRequired(value, 'Flat Number'),
-
   status: (value) => validateRequired(value, 'Status')
-
 };
-
 
 export const guardValidationSchema = {
   name: (value) => validateName(value),

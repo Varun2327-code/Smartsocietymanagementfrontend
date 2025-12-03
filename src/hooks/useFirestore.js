@@ -1,4 +1,3 @@
-// src/hooks/useFirestore.js
 import { useState, useEffect, useRef } from 'react';
 import {
   collection,
@@ -14,6 +13,8 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { auth } from '../firebase';
 
 /**
  * useCollection(collectionName, options)
@@ -91,6 +92,127 @@ export const useCollection = (collectionName, options = {}) => {
       queryBuilder, listen]);
 
   return { data, loading, error };
+};
+
+/**
+ * useDocument(collectionName, documentId)
+ */
+export const useDocument = (collectionName, documentId) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const unsubRef = useRef(null);
+
+  useEffect(() => {
+    if (!documentId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const docRef = doc(db, collectionName, documentId);
+
+      unsubRef.current = onSnapshot(
+        docRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            setData({
+              id: snapshot.id,
+              ...snapshot.data()
+            });
+          } else {
+            setData(null);
+          }
+          setLoading(false);
+        },
+        (err) => {
+          console.error('useDocument snapshot error:', err);
+          setError(err.message || String(err));
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      console.error('useDocument build error:', err);
+      setError(err.message || String(err));
+      setLoading(false);
+    }
+
+    return () => {
+      if (unsubRef.current) {
+        unsubRef.current();
+        unsubRef.current = null;
+      }
+    };
+  }, [collectionName, documentId]);
+
+  return { data, loading, error };
+};
+
+/**
+ * useFirestore hook for user profile management
+ */
+export const useFirestore = () => {
+  const [user] = useAuthState(auth);
+  const [userProfile, setUserProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const userDocRef = doc(db, 'users', user.uid);
+
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setUserProfile({
+            id: snapshot.id,
+            ...snapshot.data()
+          });
+        } else {
+          setUserProfile(null);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Error fetching user profile:', err);
+        setError(err.message || String(err));
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const updateUserProfile = async (updates) => {
+    if (!user) {
+      return { type: 'error', message: 'User not authenticated' };
+    }
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+      return { type: 'success', message: 'Profile updated successfully' };
+    } catch (err) {
+      console.error('Error updating user profile:', err);
+      return { type: 'error', message: 'Failed to update profile' };
+    }
+  };
+
+  return { userProfile, loading, error, updateUserProfile };
 };
 
 /**

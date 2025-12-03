@@ -450,7 +450,7 @@ service cloud.firestore {
     match /payments/{paymentId} {
       allow read: if isAuthenticated() &&
                    (isAdmin() || isDocumentOwner('userId'));
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAuthenticated() && isCreatingOwnDocument('userId'));
 
       // Data validation
       allow create, update: if
@@ -459,14 +459,16 @@ service cloud.firestore {
         request.resource.data.currency is string &&
         request.resource.data.currency.size() == 3 &&
         request.resource.data.status is string &&
-        request.resource.data.status in ['pending', 'paid', 'failed', 'refunded'] &&
-        request.resource.data.dueDate is timestamp;
+        request.resource.data.status in ['pending', 'paid', 'failed', 'refunded', 'Paid', 'Unpaid'] &&
+        request.resource.data.userId is string &&
+        request.resource.data.month is string &&
+        request.resource.data.month.size() >= 1;
     }
 
     match /payment_history/{historyId} {
       allow read: if isAuthenticated() &&
                    (isAdmin() || isDocumentOwner('userId'));
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAuthenticated() && isCreatingOwnDocument('userId'));
     }
 
     // Messages collection - Chat messages for authenticated users

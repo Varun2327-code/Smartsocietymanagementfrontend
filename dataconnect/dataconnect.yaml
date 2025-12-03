@@ -1,4 +1,4 @@
-specVersion: "v1"
+specVersion: "v1alpha"
 serviceId: "societymanagement-main"
 location: "us-central1"
 schema:
@@ -8,5 +8,5 @@ schema:
       database: "fdcdb"
       cloudSql:
         instanceId: "societymanagement-main-fdc"
-      # schemaValidation: "COMPATIBLE"
+      schemaValidation: "COMPATIBLE"
 connectorDirs: ["./connector"]

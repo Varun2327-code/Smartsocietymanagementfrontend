@@ -156,7 +156,6 @@ const Visitor = () => {
           <p>No visitors found.</p>
         )}
       </div>
-
     </div>
   );
 };
