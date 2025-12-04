@@ -8,22 +8,22 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './Login';
 import Register from './Register';
 import Homepage from './Homepage';
-import ProfilePage from './components/Profile/ProfilePage.jsx';
-import EditProfilePage from './components/Profile/EditProfilePage.jsx';
-import Communication from './pages/Communication.jsx';
-import Settings from './pages/Settings.jsx';
+import ProfilePage from './components/Profile/ProfilePage';
+import EditProfilePage from './components/Profile/EditProfilePage';
+import Communication from './pages/Communication';
+import Settings from './pages/settings';
 
-import AdminLayout from './components/AdminLayout.jsx';
-import Dashboard from './pages/admin/Dashboard.jsx';
-import Members from './pages/admin/Members.jsx';
-import Security from './pages/admin/Security.jsx';
-import Complaints from './pages/admin/Complaints.jsx';
-import Events from './pages/admin/Events.jsx';
-import Maintenance from './pages/admin/Maintenance.jsx';
-import Announcements from './pages/admin/Announcements.jsx';
-import DocumentsPage from './pages/DocumentsPage.jsx';
-import AdminDocumentsPage from './pages/admin/AdminDocumentsPage.jsx';
-import AdminLogin from './pages/admin/AdminLogin.jsx';
+import AdminLayout from './components/AdminLayout';
+import Dashboard from './pages/admin/Dashboard';
+import Members from './pages/admin/Members';
+import Security from './pages/admin/Security';
+import Complaints from './pages/admin/Complaints';
+import Events from './pages/admin/Events';
+import Maintenance from './pages/admin/Maintenance';
+import Announcements from './pages/admin/Announcements';
+import DocumentsPage from './pages/DocumentsPage';
+import AdminDocumentsPage from './pages/admin/AdminDocumentsPage';
+import AdminLogin from './pages/admin/AdminLogin';
 
 // ✅ Fixed Role Redirect Component
 const RoleBasedRedirect = () => {
