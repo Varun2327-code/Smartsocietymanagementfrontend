@@ -8,7 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './Login';
 import Register from './Register';
 import Homepage from './Homepage';
-import ProfilePage from './components/Profile/Profilepage.jsx';
+import ProfilePage from './components/Profile/ProfilePage.jsx';
 import EditProfile from './components/Profile/EditProfilePage.jsx';
 import Communication from './pages/Communication';
 import Settings from './pages/Settings.jsx';
