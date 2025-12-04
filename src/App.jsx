@@ -9,11 +9,11 @@ import Login from './Login';
 import Register from './Register';
 import Homepage from './Homepage';
 import ProfilePage from './components/Profile/ProfilePage.jsx';
-import EditProfile from './components/Profile/EditProfilePage.jsx';
-import Communication from './pages/Communication';
+import EditProfilePage from './components/Profile/EditProfilePage.jsx';
+import Communication from './pages/Communication.jsx';
 import Settings from './pages/Settings.jsx';
-import AdminLayout from './components/AdminLayout.jsx';
 
+import AdminLayout from './components/AdminLayout.jsx';
 import Dashboard from './pages/admin/Dashboard.jsx';
 import Members from './pages/admin/Members.jsx';
 import Security from './pages/admin/Security.jsx';
@@ -25,7 +25,7 @@ import DocumentsPage from './pages/DocumentsPage.jsx';
 import AdminDocumentsPage from './pages/admin/AdminDocumentsPage.jsx';
 import AdminLogin from './pages/admin/AdminLogin.jsx';
 
-// ✅ Role Based Redirect (fixed component)
+// ✅ Fixed Role Redirect Component
 const RoleBasedRedirect = () => {
   const [user, loading] = useAuthState(auth);
   const { role, loading: roleLoading } = useUserRole();
@@ -47,7 +47,7 @@ const App = () => {
         {/* Default Landing */}
         <Route path="/" element={<RoleBasedRedirect />} />
 
-        {/* Protected Resident Routes */}
+        {/* ✅ Protected Resident Routes */}
         <Route
           path="/dashboard"
           element={
@@ -70,7 +70,7 @@ const App = () => {
           path="/edit-profile"
           element={
             <ProtectedRoute requiredRole="resident">
-              <EditProfile />
+              <EditProfilePage />
             </ProtectedRoute>
           }
         />
@@ -102,13 +102,13 @@ const App = () => {
           }
         />
 
-        {/* Protected Admin Routes */}
+        {/* ✅ Protected Admin Routes */}
         <Route
           path="/admin"
           element={
             <ProtectedRoute requiredRole="admin">
               <AdminLayout>
-                <Outlet />   {/* allows nested admin routes */}
+                <Outlet />
               </AdminLayout>
             </ProtectedRoute>
           }
@@ -124,14 +124,13 @@ const App = () => {
           <Route path="documents" element={<AdminDocumentsPage />} />
         </Route>
 
-        {/* Public Routes */}
+        {/* ✅ Public Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin-login" element={<AdminLogin />} />
         <Route path="/admin/documents" element={<AdminDocumentsPage />} />
-        <Route path="/admin-login" element={<AdminLogin />} />
 
-        {/* No Loop — Catch All Redirect */}
+        {/* Catch All */}
         <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
