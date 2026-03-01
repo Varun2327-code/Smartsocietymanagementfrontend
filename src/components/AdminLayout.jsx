@@ -33,6 +33,7 @@ const AdminLayout = () => {
     { path: '/admin/maintenance', label: 'Maintenance', icon: '🔧' },
     { path: '/admin/announcements', label: 'Announcements', icon: '📢' },
     { path: '/admin/documents', label: 'Documents', icon: '📂' },
+    { path: '/admin/expenses', label: 'Expenses', icon: '💰' },
   ];
 
   if (loading) {
@@ -112,11 +113,10 @@ const AdminLayout = () => {
                         navigate(item.path);
                         setSidebarOpen(false);
                       }}
-                      className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition-colors ${
-                        location.pathname === item.path
+                      className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition-colors ${location.pathname === item.path
                           ? 'bg-blue-100 text-blue-700 border-l-4 border-blue-700'
                           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                      }`}
+                        }`}
                     >
                       <span className="text-lg mr-3">{item.icon}</span>
                       <span className="font-medium">{item.label}</span>

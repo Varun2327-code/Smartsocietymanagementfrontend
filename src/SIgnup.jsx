@@ -2,258 +2,157 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from './firebase';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { FiMail, FiLock, FiUser, FiEye, FiEyeOff } from 'react-icons/fi';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { motion } from 'framer-motion';
+import { FiMail, FiLock, FiUser, FiEye, FiEyeOff, FiArrowRight, FiCheckCircle } from 'react-icons/fi';
+import { toast, Toaster } from 'react-hot-toast';
 
 const Signup = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    confirmPassword: ''
+  });
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  const validatePassword = (password) => {
-    const hasUpperCase = /[A-Z]/.test(password);
-    const hasLowerCase = /[a-z]/.test(password);
-    const hasNumbers = /\d/.test(password);
-    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
-    
-    if (password.length < 6) {
-      return "Password must be at least 6 characters";
-    }
-    if (!hasUpperCase || !hasLowerCase || !hasNumbers || !hasSpecialChar) {
-      return "Password must contain uppercase, lowercase, numbers, and special characters";
-    }
-    return null;
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSignup = async (e) => {
     e.preventDefault();
-    
-    // Reset error state
-    setError('');
-
-    // Validation checks
-    if (!fullName.trim()) {
-      setError("Full name is required");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords don't match");
-      return;
-    }
-
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      setError(passwordError);
-      return;
+    if (formData.password !== formData.confirmPassword) {
+      return toast.error("Passwords don't match");
     }
 
     setIsLoading(true);
 
     try {
-      // Create user account
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
 
-      // Create user profile in Firestore with complete profile data structure
       await setDoc(doc(db, 'users', user.uid), {
-        name: fullName.trim(),
-        email: email.toLowerCase(),
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-        isEmailVerified: false,
+        name: formData.fullName.trim(),
+        email: formData.email.toLowerCase(),
+        createdAt: serverTimestamp(),
         role: 'resident',
-        status: 'active',
-        // Additional fields expected by ProfilePage
-        apartment: '',
-        members: 1,
-        lastPayment: 0,
-        complaintsResolved: 0,
-        bio: '',
-        mobile: '',
-        wing: '',
-        emergencyContact: null
+        status: 'active'
       });
 
-      // Send email verification
       await sendEmailVerification(user);
+      toast.success('Registration path sent to email.');
+      setTimeout(() => navigate("/dashboard"), 2000);
 
-      // Show success message and redirect
-      alert('Account created successfully! Please check your email to verify your account.');
-      navigate("/dashboard");
-      
     } catch (error) {
-      console.error('Signup error:', error);
-      
-      // More specific error messages
-      const errorMessages = {
-        'auth/email-already-in-use': 'This email is already registered. Please use a different email or try logging in.',
-        'auth/invalid-email': 'Please enter a valid email address.',
-        'auth/operation-not-allowed': 'Email/password accounts are not enabled. Please contact support.',
-        'auth/weak-password': 'Password is too weak. Please use a stronger password.',
-        'auth/network-request-failed': 'Network error. Please check your connection and try again.',
-        'auth/too-many-requests': 'Too many attempts. Please try again later.',
-        'auth/internal-error': 'An unexpected error occurred. Please try again.'
-      };
-
-      setError(errorMessages[error.code] || 'Registration failed. Please try again.');
+      toast.error(error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="relative">
-        {/* Background blur effects */}
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 blur-3xl"></div>
-        
-        <div className="relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl">
-          {/* Logo/Brand */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-2xl mb-4">
-              <span className="text-2xl font-bold text-white">SS</span>
+    <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+      <Toaster position="top-right" />
+
+      {/* Radiant Background Aura */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/5 blur-[120px] rounded-full" />
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="relative z-10 w-full max-w-md p-6"
+      >
+        <div className="bg-white/90 backdrop-blur-3xl border border-slate-200 rounded-[3rem] p-10 shadow-2xl shadow-indigo-100/20">
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl shadow-xl shadow-indigo-600/20 mb-6 font-bold text-white text-3xl">
+              <FiCheckCircle />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Join Smart Society</h1>
-            <p className="text-gray-300 text-sm">Create your account to get started</p>
+            <h1 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Quick Join</h1>
+            <p className="text-slate-500 text-sm font-medium">Join the society network in seconds.</p>
           </div>
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <p className="text-red-300 text-sm text-center">{error}</p>
-            </div>
-          )}
-
-          <form onSubmit={handleSignup} className="space-y-6">
-            {/* Full Name Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Full Name</label>
-              <div className="relative">
-                <FiUser className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <form onSubmit={handleSignup} className="space-y-5">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Identity (Name)</label>
+              <div className="relative group">
+                <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600" />
                 <input
                   type="text"
-                  placeholder="Enter your full name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                  name="fullName"
+                  value={formData.fullName}
+                  onChange={handleInputChange}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-slate-900 focus:outline-none focus:border-indigo-500 transition-all font-medium text-sm"
+                  placeholder="Full Name"
                   required
                 />
               </div>
             </div>
 
-            {/* Email Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Email Address</label>
-              <div className="relative">
-                <FiMail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Network Identity (Email)</label>
+              <div className="relative group">
+                <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600" />
                 <input
                   type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-slate-900 focus:outline-none focus:border-indigo-500 transition-all font-medium text-sm"
+                  placeholder="name@gmail.com"
                   required
                 />
               </div>
             </div>
 
-            {/* Password Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Password</label>
-              <div className="relative">
-                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Key</label>
+              <div className="relative group">
+                <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Create a password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 text-slate-900 focus:outline-none focus:border-indigo-500 transition-all font-medium text-sm"
+                  placeholder="••••••••"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                >
-                  {showPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
-                </button>
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600"><FiEye /></button>
               </div>
             </div>
 
-            {/* Confirm Password Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Confirm Password</label>
-              <div className="relative">
-                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                >
-                  {showConfirmPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Terms and Conditions */}
-            <div className="flex items-start">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Verify Key</label>
               <input
-                type="checkbox"
-                id="terms"
-                className="mt-1 mr-3 rounded"
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleInputChange}
+                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 text-slate-900 focus:outline-none focus:border-indigo-500 transition-all font-medium text-sm"
+                placeholder="••••••••"
                 required
               />
-              <label htmlFor="terms" className="text-sm text-gray-300">
-                I agree to the <button type="button" className="text-cyan-400 hover:text-cyan-300">Terms and Conditions</button>
-              </label>
             </div>
 
-            {/* Sign Up Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold py-3 px-4 rounded-lg hover:from-cyan-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-4 rounded-2xl shadow-xl shadow-slate-900/10 flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50 mt-6 transition-all"
             >
-              {isLoading ? "Creating Account..." : "Create Account"}
+              {isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white animate-spin rounded-full" /> : <><span className="uppercase tracking-widest text-xs">Join Network</span><FiArrowRight /></>}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/10"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-transparent text-gray-400">or</span>
-            </div>
-          </div>
-
-          {/* Login Link */}
-          <p className="text-center text-gray-300">
-            Already have an account?{" "}
-            <button
-              onClick={() => navigate("/login")}
-              className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
-            >
-              Sign in
-            </button>
+          <p className="mt-8 text-center text-slate-400 text-sm font-medium">
+            Already verified?
+            <button onClick={() => navigate("/login")} className="text-indigo-600 font-black hover:text-indigo-700 uppercase tracking-widest text-xs ml-2">Sign In</button>
           </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

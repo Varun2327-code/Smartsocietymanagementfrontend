@@ -627,3 +627,60 @@ export const validateDocumentForm = (formData) => {
 
   return errors;
 };
+
+// Visitor Management Operations
+export const addVisitor = async (visitorData) => {
+  try {
+    const docRef = await addDoc(collection(db, collections.VISITORS), {
+      ...visitorData,
+      status: visitorData.status || 'Expected',
+      timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding visitor:', error);
+    throw error;
+  }
+};
+
+export const updateVisitorStatus = async (id, status) => {
+  try {
+    const docRef = doc(db, collections.VISITORS, id);
+    const updateData = {
+      status,
+      updatedAt: serverTimestamp()
+    };
+
+    if (status === 'Checked In') {
+      updateData.checkInTime = serverTimestamp();
+    } else if (status === 'Checked Out') {
+      updateData.checkOutTime = serverTimestamp();
+    }
+
+    await updateDoc(docRef, updateData);
+  } catch (error) {
+    console.error('Error updating visitor status:', error);
+    throw error;
+  }
+};
+
+export const deleteVisitor = async (id) => {
+  try {
+    const docRef = doc(db, collections.VISITORS, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error('Error deleting visitor record:', error);
+    throw error;
+  }
+};
+
+export const validateVisitorForm = (formData) => {
+  const errors = {};
+  if (!formData.name?.trim()) errors.name = 'Visitor Name is required';
+  if (!formData.flatNumber?.trim()) errors.flatNumber = 'Flat Number is required';
+  if (!formData.purpose?.trim()) errors.purpose = 'Purpose of visit is required';
+  if (formData.phone && !/^\d{10}$/.test(formData.phone)) errors.phone = 'Enter a valid 10-digit number';
+  return errors;
+};

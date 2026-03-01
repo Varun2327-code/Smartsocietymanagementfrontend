@@ -8,7 +8,7 @@ import { doc, getDoc } from "firebase/firestore";
  * Custom hook to get the current user's role.
  * For demonstration, it fetches the role from Firestore user document.
  */
-const useUserRole = () => {
+export const useUserRole = () => {
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 

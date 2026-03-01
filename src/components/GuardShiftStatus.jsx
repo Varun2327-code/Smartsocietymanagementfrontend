@@ -1,12 +1,16 @@
-// src/components/GuardShiftStatus.jsx
-import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import React, { useMemo, useEffect } from 'react';
+import { serverTimestamp } from 'firebase/firestore';
+import { useCollection, useAddDocument } from '../hooks/useFirestore';
+import useUserRole from '../hooks/useUserRole';
 import LoadingSpinner from './LoadingSpinner';
+import { motion } from 'framer-motion';
+import { FiShield, FiClock, FiActivity, FiUser } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 
 const GuardShiftStatus = () => {
-  const [guards, setGuards] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { role, loading: roleLoading } = useUserRole();
+  const { data: guards, loading: guardsLoading } = useCollection('guards');
+  const { addDocument: addGuard } = useAddDocument('guards');
 
   // Demo guards data
   const demoGuards = [
@@ -15,97 +19,101 @@ const GuardShiftStatus = () => {
     { name: 'Mike Davis', shift: 'Day', status: true }
   ];
 
-  // Function to create demo guards
   const createDemoGuards = async () => {
+    if (role !== 'admin') return;
+
     try {
       const promises = demoGuards.map(guard =>
-        addDoc(collection(db, 'guards'), {
+        addGuard({
           ...guard,
           timestamp: serverTimestamp()
         })
       );
       await Promise.all(promises);
-      console.log('Demo guards created successfully');
+      toast.success('Security matrix initialized with demo data');
     } catch (error) {
       console.error('Error creating demo guards:', error);
+      // We don't toast error here to avoid spamming residents if permissions fail
     }
   };
 
+  // Logic to handle empty state
   useEffect(() => {
-    const guardsRef = collection(db, 'guards');
-    const unsubscribe = onSnapshot(guardsRef, (snapshot) => {
-      let guardsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+    if (!roleLoading && !guardsLoading && guards && guards.length === 0 && role === 'admin') {
+      createDemoGuards();
+    }
+  }, [role, roleLoading, guardsLoading, guards]); // Added guards to dependency array
 
-      // If no guards exist, create demo guards
-      if (guardsData.length === 0) {
-        createDemoGuards();
-        // Note: onSnapshot will trigger again after demo guards are added
-        return;
-      }
-
-      // Ensure all guards have required fields with defaults
-      guardsData = guardsData.map(guard => ({
-        ...guard,
-        name: guard.name || 'Unknown Guard',
-        shift: guard.shift || 'Day',
-        status: guard.status !== undefined ? guard.status : false
-      }));
-
-      setGuards(guardsData);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching guards:', error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+  const loading = roleLoading || guardsLoading;
 
   if (loading) {
     return (
-      <div className="mt-6">
-        <h2 className="text-xl font-semibold mb-4">Guard Shift Status</h2>
-        <LoadingSpinner size="md" className="flex justify-center" />
+      <div className="bg-white/40 backdrop-blur-xl border border-white/20 p-8 rounded-[32px] shadow-sm">
+        <div className="h-8 w-48 bg-slate-100 rounded-xl mb-6 animate-pulse" />
+        <LoadingSpinner size="md" className="flex justify-center py-10" />
       </div>
     );
   }
 
   return (
-    <div className="mt-6">
-      <h2 className="text-xl font-semibold mb-4">Guard Shift Status</h2>
+    <div className="bg-white/80 backdrop-blur-xl border border-slate-100 p-8 rounded-[40px] shadow-2xl shadow-slate-200/40">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <FiShield className="text-indigo-600" />
+            Active Security Grid
+          </h2>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Live Sentinel Status</p>
+        </div>
+        <div className="px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+          {guards.filter(g => g.status).length} On Duty
+        </div>
+      </div>
+
       {guards.length === 0 ? (
-        <p className="text-gray-500">No guards available</p>
+        <div className="py-20 text-center space-y-4 bg-slate-50/50 rounded-[30px] border border-dashed border-slate-200">
+          <FiUser size={48} className="mx-auto text-slate-200" />
+          <p className="text-sm font-black text-slate-400 uppercase tracking-widest italic">No sentinels active on grid.</p>
+          {role === 'admin' && (
+            <button
+              onClick={createDemoGuards}
+              className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-full text-[10px] font-bold uppercase"
+            >
+              Seed Data
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shift</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {guards.map((guard) => (
-                <tr key={guard.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{guard.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{guard.shift}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      guard.status
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {guard.status ? 'On Duty' : 'Off Duty'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 gap-4">
+          {guards.map((guard, idx) => (
+            <motion.div
+              key={guard.id}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: idx * 0.05 }}
+              className="group p-5 bg-white border border-slate-50 rounded-[24px] hover:shadow-xl hover:shadow-indigo-50 transition-all flex items-center justify-between"
+            >
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm ${guard.status ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-100 text-slate-400'}`}>
+                  {guard.name?.charAt(0) || '?'}
+                </div>
+                <div>
+                  <div className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{guard.name || 'Unknown Guard'}</div>
+                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1 mt-1">
+                    <FiClock size={10} /> {guard.shift || 'Day'} Protocol
+                  </div>
+                </div>
+              </div>
+
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest border ${guard.status
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : 'bg-slate-50 text-slate-400 border-slate-100'
+                } `}>
+                <FiActivity size={10} className={guard.status ? 'animate-pulse' : ''} />
+                {guard.status ? 'In Field' : 'Off Rotation'}
+              </div>
+            </motion.div>
+          ))}
         </div>
       )}
     </div>

@@ -14,7 +14,7 @@ import Communication from './pages/Communication';
 import Settings from './pages/settings';
 
 import AdminLayout from './components/AdminLayout';
-import Dashboard from './pages/admin/Dashboard';
+import AdminPanel from './pages/AdminPanel';
 import Members from './pages/admin/Members';
 import Security from './pages/admin/Security';
 import Complaints from './pages/admin/Complaints';
@@ -24,6 +24,8 @@ import Announcements from './pages/admin/Announcements';
 import DocumentsPage from './pages/DocumentsPage';
 import AdminDocumentsPage from './pages/admin/AdminDocumentsPage';
 import AdminLogin from './pages/admin/AdminLogin';
+import ExpenseTracker from './pages/admin/ExpenseTracker';
+import Dashboard from './pages/admin/Dashboard';
 
 // ✅ Fixed Role Redirect Component
 const RoleBasedRedirect = () => {
@@ -113,7 +115,7 @@ const App = () => {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Dashboard />} />
+          <Route index element={<AdminPanel />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="members" element={<Members />} />
           <Route path="security" element={<Security />} />
@@ -122,6 +124,7 @@ const App = () => {
           <Route path="maintenance" element={<Maintenance />} />
           <Route path="announcements" element={<Announcements />} />
           <Route path="documents" element={<AdminDocumentsPage />} />
+          <Route path="expenses" element={<ExpenseTracker />} />
         </Route>
 
         {/* ✅ Public Routes */}

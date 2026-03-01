@@ -1,589 +1,470 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  FiChevronLeft,
-  FiDownload,
-  FiSearch,
-  FiSun,
-  FiMoon,
-  FiPlus,
-  FiPrinter,
-  FiFilter,
-  FiTrendingUp,
-  FiClock,
-  FiCheckCircle,
-  FiFileText,
-} from "react-icons/fi";
+  Shield,
+  CreditCard,
+  Plus,
+  Search,
+  CheckCircle,
+  Clock,
+  TrendingUp,
+  Zap,
+  Filter,
+  PieChart,
+  Calendar,
+  MoreVertical,
+  Trash2,
+  FileText,
+  Activity,
+  ArrowRightLeft,
+  X,
+  AlertCircle,
+  Download
+} from "lucide-react";
 import { Bar, Pie } from "react-chartjs-2";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend } from "chart.js";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import {
+  useCollection,
+  useAddDocument,
+  useUpdateDocument,
+  useDeleteDocument
+} from "../../hooks/useFirestore";
+import toast from "react-hot-toast";
+import useUserRole from "../../hooks/useUserRole";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
-const mockBills = [
-  {
-    id: 1,
-    month: "January 2024",
-    amount: 2500,
-    dueDate: "2024-01-31",
-    status: "paid",
-    paidDate: "2024-01-15",
-    units: [
-      { unit: "A-101", amount: 2500, paid: true },
-      { unit: "B-202", amount: 2500, paid: true },
-    ],
-    notes: "Monthly maintenance",
-    receiptUrl: null,
-  },
-  {
-    id: 2,
-    month: "February 2024",
-    amount: 2400,
-    dueDate: "2024-02-28",
-    status: "pending",
-    paidDate: null,
-    units: [
-      { unit: "A-101", amount: 2400, paid: false },
-      { unit: "B-202", amount: 2400, paid: false },
-    ],
-    notes: "Short month adjustment",
-    receiptUrl: null,
-  },
-  {
-    id: 3,
-    month: "March 2024",
-    amount: 2300,
-    dueDate: "2024-03-31",
-    status: "overdue",
-    paidDate: null,
-    units: [
-      { unit: "A-101", amount: 2300, paid: false },
-      { unit: "B-202", amount: 2300, paid: false },
-      { unit: "C-303", amount: 2300, paid: false },
-    ],
-    notes: "Late payment notice sent",
-    receiptUrl: null,
-  },
-];
-
-const mockPayments = [
-  { id: 1, unit: "A-101", amount: 2500, month: "January 2024", paymentDate: "2024-01-15", paymentMethod: "Online Transfer" },
-  { id: 2, unit: "B-202", amount: 2500, month: "January 2024", paymentDate: "2024-01-16", paymentMethod: "UPI" },
-];
-
-const STATUS_COLORS = {
-  paid: "bg-green-100 text-green-800",
-  pending: "bg-yellow-100 text-yellow-800",
-  overdue: "bg-red-100 text-red-800",
+const STATUS_CONFIG = {
+  paid: "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-emerald-50 text-[9px]",
+  pending: "bg-amber-50 text-amber-600 border-amber-100 shadow-amber-50 text-[9px]",
+  overdue: "bg-rose-50 text-rose-600 border-rose-100 shadow-rose-50 text-[9px]",
 };
 
 const Maintenance = () => {
-  // UI state
-  const [dark, setDark] = useState(false);
   const [activeTab, setActiveTab] = useState("billing");
-  const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [bills, setBills] = useState(mockBills); // replace with API data
-  const [payments, setPayments] = useState(mockPayments); // replace with API data
-  const [expandedRows, setExpandedRows] = useState({});
-  const [filters, setFilters] = useState({ month: "all", status: "all", q: "" });
+  const [showModal, setShowModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  // Derived stats
+  const { role, loading: roleLoading } = useUserRole();
+  const queryBuilder = useMemo(() => (colRef) => {
+    if (role !== 'admin') return null;
+    return colRef;
+  }, [role]);
+
+  const { data: bills, loading: billsLoading } = useCollection('maintenance', { queryBuilder });
+  const loading = billsLoading || roleLoading;
+  const { addDocument: generateBill } = useAddDocument('maintenance');
+  const { updateDocument: updateBill } = useUpdateDocument('maintenance');
+  const { deleteDocument: deleteBill } = useDeleteDocument('maintenance');
+
   const totals = useMemo(() => {
-    const totalRevenue = bills.reduce((s, b) => s + (b.amount || 0), 0);
-    const collected = bills.filter(b => b.status === "paid").reduce((s, b) => s + (b.amount || 0), 0);
-    const pending = bills.filter(b => b.status === "pending").reduce((s, b) => s + (b.amount || 0), 0);
-    const overdue = bills.filter(b => b.status === "overdue").reduce((s, b) => s + (b.amount || 0), 0);
-    const collectionRate = totalRevenue === 0 ? 0 : Math.round((collected / totalRevenue) * 100);
-    return { totalRevenue, collected, pending, overdue, collectionRate };
+    if (!Array.isArray(bills)) return { total: 0, collected: 0, pending: 0, overdue: 0 };
+    return bills.reduce((acc, b) => {
+      const amt = Number(b.amount || 0);
+      acc.total += amt;
+      if (b.status === 'paid') acc.collected += amt;
+      else if (b.status === 'pending') acc.pending += amt;
+      else if (b.status === 'overdue') acc.overdue += amt;
+      return acc;
+    }, { total: 0, collected: 0, pending: 0, overdue: 0 });
   }, [bills]);
 
-  // Chart data (last 6 months — derived here from bills; replace with actual monthly series)
-  const barData = useMemo(() => {
-    // For demo generate labels & amounts from bills array
-    const labels = bills.map(b => b.month);
-    const data = bills.map(b => b.amount);
-    return {
-      labels,
-      datasets: [
-        {
-          label: "Collected per month",
-          data,
-          backgroundColor: "rgba(59,130,246,0.8)", // blue-500
-        },
-      ],
-    };
-  }, [bills]);
-
-  const pieData = useMemo(() => {
-    return {
-      labels: ["Collected", "Pending", "Overdue"],
-      datasets: [
-        {
-          data: [totals.collected, totals.pending, totals.overdue],
-          backgroundColor: ["#34D399", "#FBBF24", "#F87171"],
-        },
-      ],
-    };
-  }, [totals]);
-
-  useEffect(() => {
-    // apply dark class to body
-    if (dark) document.documentElement.classList.add("dark");
-    else document.documentElement.classList.remove("dark");
-  }, [dark]);
-
-  // Filtered lists
   const filteredBills = useMemo(() => {
-    const { month, status, q } = filters;
+    if (!Array.isArray(bills)) return [];
     return bills.filter(b => {
-      if (month !== "all" && b.month.toLowerCase() !== month.toLowerCase()) return false;
-      if (status !== "all" && b.status !== status) return false;
-      if (q && !(`${b.month} ${b.notes} ${b.units.map(u => u.unit).join(" ")}`.toLowerCase().includes(q.toLowerCase()))) return false;
-      return true;
-    });
-  }, [bills, filters]);
+      const matchesSearch = (b.month || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (b.notes || "").toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    }).sort((a, b) => new Date(b.month) - new Date(a.month));
+  }, [bills, searchTerm, statusFilter]);
 
-  // Toggle expand
-  const toggleExpand = (id) => {
-    setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // Actions
-  const markAsPaid = (billId) => {
-    // Replace with API call to update status
-    setBills(prev => prev.map(b => (b.id === billId ? { ...b, status: "paid", paidDate: new Date().toISOString().slice(0,10) } : b)));
-  };
-
-  const sendReminder = (billId) => {
-    // Replace with actual notification logic
-    alert("Reminder sent to units for bill id: " + billId);
-  };
-
-  // Export helpers
-  const exportCSV = (rows, filename = "bills.csv") => {
-    const headers = ["Month", "Amount", "Due Date", "Status", "Paid Date", "Units", "Notes"];
-    const csvRows = [headers.join(",")];
-    rows.forEach(r => {
-      const units = r.units.map(u => u.unit).join("|");
-      const line = [r.month, r.amount, r.dueDate, r.status, r.paidDate || "", `"${units}"`, `"${r.notes || ""}"`];
-      csvRows.push(line.join(","));
-    });
-    const csvContent = csvRows.join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
-  };
-
-  const printAsPDF = async (selector = "#maintenance-root", filename = "maintenance.pdf") => {
-    const element = document.querySelector(selector);
-    if (!element) {
-      window.print();
-      return;
-    }
-    // Use html2canvas + jsPDF
-    const canvas = await html2canvas(element, { scale: 2 });
-    const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "pt", "a4");
-    const imgProps = pdf.getImageProperties(imgData);
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-    pdf.save(filename);
-  };
-
-  // Placeholder generate bill handler
-  const handleGenerateBill = (formData) => {
-    // Replace with API call to create bills for selected units
-    const newBill = {
-      id: Date.now(),
-      month: formData.month,
-      amount: Number(formData.amountPerUnit || 0),
-      dueDate: formData.dueDate,
-      status: "pending",
-      paidDate: null,
-      units: formData.units || [{ unit: "A-101", amount: Number(formData.amountPerUnit || 0), paid: false }],
-      notes: formData.notes,
+  const barData = useMemo(() => {
+    const sorted = [...(Array.isArray(bills) ? bills : [])].sort((a, b) => new Date(a.month) - new Date(b.month)).slice(-6);
+    return {
+      labels: sorted.map(b => b.month),
+      datasets: [{
+        label: "Revenue Stream (₹)",
+        data: sorted.map(b => b.amount),
+        backgroundColor: "rgba(99, 102, 241, 0.8)",
+        borderRadius: 12,
+      }],
     };
-    setBills(prev => [newBill, ...prev]);
-    setShowGenerateModal(false);
+  }, [bills]);
+
+  const pieData = useMemo(() => ({
+    labels: ["Collected", "Pending", "Overdue"],
+    datasets: [{
+      data: [totals.collected, totals.pending, totals.overdue],
+      backgroundColor: ["#10B981", "#F59E0B", "#EF4444"],
+      borderWidth: 0,
+    }],
+  }), [totals]);
+
+  const handleGenerate = async (formData) => {
+    const loadingToast = toast.loading("Launching billing sequence...");
+    try {
+      await generateBill({
+        ...formData,
+        amount: Number(formData.amount),
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      });
+      toast.success("Bills generated!", { id: loadingToast });
+      setShowModal(false);
+    } catch (err) {
+      toast.error("Generation failed", { id: loadingToast });
+    }
   };
 
-  return (
-    <div id="maintenance-root" className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <button className="p-2 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-            <FiChevronLeft />
-          </button>
-          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100">Maintenance Overview</h1>
-        </div>
+  const markAsPaid = async (id) => {
+    try {
+      await updateBill(id, { status: 'paid', paidAt: new Date().toISOString() });
+      toast.success("Payment verified");
+    } catch (err) {
+      toast.error("Update failed");
+    }
+  };
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center border rounded-md overflow-hidden bg-white dark:bg-gray-900 shadow-sm">
-            <input
-              type="text"
-              placeholder="Search month, unit, notes..."
-              className="px-3 py-2 outline-none w-64 text-sm bg-transparent text-gray-700 dark:text-gray-200"
-              value={filters.q}
-              onChange={(e) => setFilters(prev => ({ ...prev, q: e.target.value }))}
-            />
-            <button className="px-3"><FiSearch /></button>
-          </div>
-
-          <button
-            onClick={() => setDark(d => !d)}
-            className="p-2 rounded-md bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200"
-            title="Toggle theme"
-          >
-            {dark ? <FiSun /> : <FiMoon />}
-          </button>
-
-          <button
-            onClick={() => setShowGenerateModal(true)}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
-          >
-            <FiPlus /> Generate Bill
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button onClick={() => exportCSV(bills)} title="Export CSV" className="p-2 rounded-md bg-white dark:bg-gray-800">
-              <FiDownload />
-            </button>
-            <button onClick={() => printAsPDF()} title="Print / Save as PDF" className="p-2 rounded-md bg-white dark:bg-gray-800">
-              <FiPrinter />
-            </button>
-          </div>
-        </div>
+  if (loading) return (
+    <div className="min-h-screen bg-[#F8FAFC] p-12 space-y-12 animate-pulse">
+      <div className="h-12 w-64 bg-slate-200 rounded-3xl" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        {[1, 2, 3, 4].map(i => <div key={i} className="h-40 bg-slate-100 rounded-[3rem]" />)}
       </div>
-
-      {/* Summary cards + charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-        <div className="col-span-1 p-4 rounded-xl bg-gradient-to-r from-white to-indigo-50 dark:from-gray-800 dark:to-slate-800 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100">
-              <FiTrendingUp />
-            </div>
-            <div>
-              <div className="text-sm text-gray-500 dark:text-gray-300">Total Revenue</div>
-              <div className="text-xl font-semibold text-slate-900 dark:text-slate-100">₹{totals.totalRevenue}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-1 p-4 rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-green-50 text-green-600">
-              <FiCheckCircle />
-            </div>
-            <div>
-              <div className="text-sm text-green-600">Collected</div>
-              <div className="text-xl font-semibold text-green-700">₹{totals.collected}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-1 p-4 rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-yellow-50 text-yellow-600">
-              <FiClock />
-            </div>
-            <div>
-              <div className="text-sm text-yellow-600">Pending</div>
-              <div className="text-xl font-semibold text-yellow-700">₹{totals.pending}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-1 p-4 rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-blue-50 text-blue-600">
-              <FiFileText />
-            </div>
-            <div>
-              <div className="text-sm text-blue-600">Collection Rate</div>
-              <div className="text-xl font-semibold text-blue-700">{totals.collectionRate}%</div>
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div className="lg:col-span-2 h-80 bg-slate-100 rounded-[3rem]" />
+        <div className="h-80 bg-slate-100 rounded-[3rem]" />
       </div>
-
-      {/* Charts + Filters area */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2 p-4 rounded-lg bg-white dark:bg-gray-900 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="font-semibold text-slate-800 dark:text-slate-100">Monthly Trend</h3>
-            <div className="text-xs text-gray-500 dark:text-gray-300">Last {bills.length} months</div>
-          </div>
-          <div className="h-48">
-            <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false }} />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-900 shadow-sm border border-gray-100 dark:border-gray-700">
-          <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-2">Collection Breakdown</h3>
-          <div className="h-40">
-            <Pie data={pieData} options={{ responsive: true, maintainAspectRatio: false }} />
-          </div>
-          <div className="mt-3 text-sm text-gray-500 dark:text-gray-300">
-            <div>Collected: ₹{totals.collected}</div>
-            <div>Pending: ₹{totals.pending}</div>
-            <div>Overdue: ₹{totals.overdue}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs (Billing / Payments) */}
-      <div className="mb-4">
-        <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setActiveTab("billing")}
-            className={`py-2 px-4 ${activeTab === "billing" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500 dark:text-gray-300"}`}
-          >
-            Billing
-          </button>
-          <button
-            onClick={() => setActiveTab("payments")}
-            className={`py-2 px-4 ${activeTab === "payments" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500 dark:text-gray-300"}`}
-          >
-            Payment History
-          </button>
-
-          {/* Filters */}
-          <div className="ml-auto flex items-center gap-2">
-            <select className="px-3 py-1 rounded-md border" value={filters.month} onChange={e => setFilters(prev => ({ ...prev, month: e.target.value }))}>
-              <option value="all">All months</option>
-              {bills.map(b => <option key={b.id} value={b.month}>{b.month}</option>)}
-            </select>
-
-            <select className="px-3 py-1 rounded-md border" value={filters.status} onChange={e => setFilters(prev => ({ ...prev, status: e.target.value }))}>
-              <option value="all">All status</option>
-              <option value="paid">Paid</option>
-              <option value="pending">Pending</option>
-              <option value="overdue">Overdue</option>
-            </select>
-
-            <button className="px-3 py-1 rounded-md bg-gray-50 dark:bg-gray-800" title="More filters">
-              <FiFilter />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Billing Tab */}
-      {activeTab === "billing" && (
-        <div className="mb-8">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <div className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-800">
-              <div className="font-semibold text-slate-800 dark:text-slate-100">Maintenance Bills</div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => exportCSV(filteredBills, "maintenance_bills.csv")} className="px-3 py-1 rounded bg-indigo-600 text-white">Export CSV</button>
-                <button onClick={() => printAsPDF()} className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700">Print</button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-800">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Month</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Due Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Paid Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredBills.map(bill => {
-                    const overdueFlag = bill.status === "pending" && new Date(bill.dueDate) < new Date();
-                    return (
-                      <React.Fragment key={bill.id}>
-                        <tr>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{bill.month}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">₹{bill.amount}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{bill.dueDate}</td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-3 py-1 text-xs rounded-full ${overdueFlag ? STATUS_COLORS.overdue : (STATUS_COLORS[bill.status] || "bg-gray-100 text-gray-800")}`}>
-                              {overdueFlag ? "Overdue" : bill.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{bill.paidDate || "-"}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => toggleExpand(bill.id)} className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-sm">Details</button>
-                              <button onClick={() => markAsPaid(bill.id)} className="px-2 py-1 rounded bg-green-600 text-white text-sm">Mark Paid</button>
-                              <button onClick={() => sendReminder(bill.id)} className="px-2 py-1 rounded bg-yellow-500 text-white text-sm">Reminder</button>
-                            </div>
-                          </td>
-                        </tr>
-
-                        {expandedRows[bill.id] && (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-4 bg-gray-50 dark:bg-gray-800">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Units</div>
-                                  <ul className="mt-2">
-                                    {bill.units.map((u, idx) => (
-                                      <li key={idx} className="text-sm text-gray-600 dark:text-gray-300">• {u.unit} — ₹{u.amount} — {u.paid ? "Paid" : "Unpaid"}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-
-                                <div>
-                                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notes</div>
-                                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">{bill.notes || "-"}</div>
-
-                                  <div className="mt-4 flex items-center gap-2">
-                                    <button className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">View Invoice</button>
-                                    <button className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-sm" onClick={() => alert("Download receipt (replace with real URL)")}>Download Receipt</button>
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Timeline</div>
-                                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                                    <div>• Bill generated: {bill.dueDate}</div>
-                                    <div>• Reminder sent: {bill.status === "overdue" ? "Yes" : "—"}</div>
-                                    <div>• Paid date: {bill.paidDate || "—"}</div>
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {filteredBills.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center py-8 text-gray-500">No bills found for selected filters.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment History tab */}
-      {activeTab === "payments" && (
-        <div>
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-            <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-3">Payment History</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-800">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Unit</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Month</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Method</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                  {payments.map(p => (
-                    <tr key={p.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{p.unit}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">₹{p.amount}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{p.month}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{p.paymentDate}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{p.paymentMethod}</td>
-                    </tr>
-                  ))}
-
-                  {payments.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="text-center py-8 text-gray-500">No payments recorded yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Generate Bill Modal */}
-      {showGenerateModal && (
-        <GenerateBillModal
-          onClose={() => setShowGenerateModal(false)}
-          onSubmit={handleGenerateBill}
-        />
-      )}
     </div>
   );
-};
 
-/* ----------------------------
-   Generate Bill Modal Component
-   ---------------------------- */
-function GenerateBillModal({ onClose, onSubmit }) {
-  const [form, setForm] = useState({
-    month: "",
-    amountPerUnit: "",
-    dueDate: "",
-    notes: "",
-    units: [{ unit: "A-101" }, { unit: "B-202" }],
-  });
-
-  const addUnit = () => setForm(prev => ({ ...prev, units: [...prev.units, { unit: "" }] }));
-  const updateUnit = (idx, value) => setForm(prev => {
-    const units = [...prev.units]; units[idx].unit = value; return { ...prev, units };
-  });
-  const removeUnit = (idx) => setForm(prev => ({ ...prev, units: prev.units.filter((_, i) => i !== idx) }));
-
-  const submit = (e) => {
-    e.preventDefault();
-    onSubmit(form);
-  };
+  if (role !== 'admin') {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-8">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-rose-100 text-center max-w-lg">
+          <div className="w-20 h-20 bg-rose-50 rounded-3xl flex items-center justify-center mx-auto mb-8 text-rose-500">
+            <Shield size={40} />
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 mb-4 uppercase italic">Access Denied</h1>
+          <p className="text-slate-500 font-bold text-sm leading-relaxed">
+            Your current clearance level does not authorize access to the Revenue Forge.
+            Please contact the Central Command if this is an error.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4">
-      <div className="absolute inset-0 bg-black opacity-40" onClick={onClose} />
-      <form onSubmit={submit} className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl relative z-10 p-6 border border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Generate Maintenance Bill</h3>
-          <button type="button" onClick={onClose} className="text-gray-500 dark:text-gray-300">Close</button>
+    <div className="min-h-screen bg-[#F8FAFC] p-8 font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* Header Nexus */}
+      <div className="max-w-7xl mx-auto mb-12">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100">
+                <CreditCard size={24} />
+              </div>
+              <div>
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                  Revenue <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">Forge Nexus</span>
+                </h1>
+                <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1 italic">High-Clearance Fiscal Infrastructure</p>
+              </div>
+            </div>
+          </motion.div>
+
+          <button
+            onClick={() => setShowModal(true)}
+            className="group flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-slate-200 hover:bg-slate-800 transition-all hover:scale-105 active:scale-95"
+          >
+            <Plus size={18} className="group-hover:rotate-90 transition-transform duration-500" />
+            Launch Billing Wave
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto space-y-12">
+        {/* Statistics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { label: 'Total Volume', val: totals.total, sub: 'Gross Quota', icon: <TrendingUp />, color: 'indigo' },
+            { label: 'Collected', val: totals.collected, sub: 'Verified Assets', icon: <CheckCircle />, color: 'emerald' },
+            { label: 'Pending', val: totals.pending, sub: 'In Arrears', icon: <Clock />, color: 'amber' },
+            { label: 'Liquidity', val: totals.total ? Math.round((totals.collected / totals.total) * 100) + '%' : '0%', sub: 'Fiscal Health', icon: <Zap />, color: 'blue' }
+          ].map((stat, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between group hover:shadow-xl transition-all"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className={`w-12 h-12 rounded-2xl bg-${stat.color}-50 text-${stat.color}-600 flex items-center justify-center group-hover:scale-110 transition-transform`}>{stat.icon}</div>
+                <Activity size={16} className="text-slate-200 group-hover:text-emerald-400 transition-colors" />
+              </div>
+              <div>
+                <div className="text-3xl font-black text-slate-900 leading-none mb-2">
+                  {typeof stat.val === 'number' ? `₹${stat.val.toLocaleString()}` : stat.val}
+                </div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{stat.label}</div>
+                <div className="text-[9px] font-bold text-slate-300 uppercase italic leading-none">{stat.sub}</div>
+              </div>
+            </motion.div>
+          ))}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input required value={form.month} onChange={e => setForm(prev => ({ ...prev, month: e.target.value }))} placeholder="Month (e.g. April 2024)" className="px-3 py-2 border rounded-md bg-transparent" />
-          <input required type="number" value={form.amountPerUnit} onChange={e => setForm(prev => ({ ...prev, amountPerUnit: e.target.value }))} placeholder="Amount per unit (₹)" className="px-3 py-2 border rounded-md bg-transparent" />
-          <input required type="date" value={form.dueDate} onChange={e => setForm(prev => ({ ...prev, dueDate: e.target.value }))} className="px-3 py-2 border rounded-md bg-transparent" />
-          <input value={form.notes} onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))} placeholder="Notes (optional)" className="px-3 py-2 border rounded-md bg-transparent" />
-        </div>
-
-        <div className="mt-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-medium text-gray-700 dark:text-gray-200">Units</div>
-            <button type="button" onClick={addUnit} className="text-sm px-2 py-1 bg-indigo-600 text-white rounded">Add Unit</button>
+        {/* Charts & Visualization */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+          <div className="lg:col-span-2 bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50/50 rounded-bl-[4rem] group-hover:bg-indigo-50/50 transition-colors" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10 flex items-center gap-2">
+              <TrendingUp size={14} className="text-indigo-600" /> Revenue Forecast Matrix
+            </h3>
+            <div className="h-72 relative z-10">
+              <Bar data={barData} options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  y: { grid: { display: false }, border: { display: false } },
+                  x: { grid: { display: false }, border: { display: false } }
+                }
+              }} />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            {form.units.map((u, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <input required value={u.unit} onChange={e => updateUnit(idx, e.target.value)} placeholder="Unit code (e.g. A-101)" className="flex-1 px-3 py-2 border rounded-md bg-transparent" />
-                <button type="button" onClick={() => removeUnit(idx)} className="px-2 py-1 rounded bg-red-500 text-white">Remove</button>
-              </div>
+          <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50/50 rounded-bl-[4rem] group-hover:bg-indigo-50/50 transition-colors" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10 flex items-center gap-2">
+              <PieChart size={14} className="text-indigo-600" /> Collection Breakdown
+            </h3>
+            <div className="h-60 relative z-10 flex items-center justify-center">
+              <Pie data={pieData} options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      font: { size: 10, weight: '900', family: 'Plus Jakarta Sans' },
+                      usePointStyle: true,
+                      padding: 20
+                    }
+                  }
+                }
+              }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Filter Matrix */}
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="relative flex-1 group">
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+            <input
+              type="text"
+              placeholder="Locate billing cycle or memorandum..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-16 pr-8 py-5 bg-white border border-slate-100 rounded-3xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all outline-none"
+            />
+          </div>
+          <div className="flex bg-white p-1.5 rounded-3xl border border-slate-100 shadow-sm gap-1">
+            {['all', 'paid', 'pending', 'overdue'].map(status => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === status ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-400 hover:bg-slate-50'}`}
+              >
+                {status}
+              </button>
             ))}
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-700">Cancel</button>
-          <button type="submit" className="px-4 py-2 rounded bg-green-600 text-white">Generate</button>
+        {/* Billing Matrix Table */}
+        <div className="bg-white rounded-[3.5rem] border border-slate-100 shadow-sm overflow-hidden mb-20">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-slate-50 bg-slate-50/30">
+                  <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Fiscal Vector</th>
+                  <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quota Value</th>
+                  <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Maturity Date</th>
+                  <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Clearance Status</th>
+                  <th className="px-10 py-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Operations</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredBills.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="px-10 py-24 text-center">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-200">
+                        <Activity size={40} />
+                      </div>
+                      <h3 className="text-lg font-black text-slate-900 mb-1 italic">Void Fiscal Space</h3>
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No active billing nodes detected in this quadrant.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBills.map((b, i) => (
+                    <motion.tr
+                      key={b.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="hover:bg-indigo-50/20 transition-all group"
+                    >
+                      <td className="px-10 py-8">
+                        <div className="flex items-center gap-5">
+                          <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-sm shadow-inner group-hover:scale-110 transition-transform">
+                            {b.month?.substring(0, 3).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-base font-black text-slate-900 group-hover:text-indigo-600 transition-colors uppercase italic">{b.month}</div>
+                            <div className="text-[10px] text-slate-400 font-black uppercase tracking-[0.1em] mt-0.5">{b.notes || 'Routine Protocol Maintenance'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-10 py-8 font-black text-slate-900 text-lg italic">
+                        ₹{Number(b.amount).toLocaleString()}
+                      </td>
+                      <td className="px-10 py-8">
+                        <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          <Calendar size={14} className="text-slate-300" /> {b.dueDate}
+                        </div>
+                      </td>
+                      <td className="px-10 py-8">
+                        <span className={`px-5 py-2 rounded-full border font-black uppercase tracking-widest ${STATUS_CONFIG[b.status]}`}>
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="px-10 py-8 text-right">
+                        <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                          {b.status !== 'paid' && (
+                            <button
+                              onClick={() => markAsPaid(b.id)}
+                              className="p-3 bg-white text-emerald-600 border border-emerald-100 rounded-xl shadow-sm hover:bg-emerald-50 transition-all"
+                              title="Authorize Payment"
+                            >
+                              <CheckCircle size={18} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => deleteBill(b.id)}
+                            className="p-3 bg-white text-rose-500 border border-rose-100 rounded-xl shadow-sm hover:bg-rose-50 transition-all"
+                            title="Purge Node"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </form>
+      </div>
+
+      {/* Bill Generation Drawer */}
+      <AnimatePresence>
+        {showModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowModal(false)} />
+            <motion.div
+              initial={{ x: '100%', opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '100%', opacity: 0 }}
+              className="fixed right-0 top-0 bottom-0 w-full md:w-[500px] bg-white z-[110] shadow-2xl flex flex-col pt-12"
+            >
+              <div className="px-12 flex items-center justify-between mb-12">
+                <div>
+                  <h2 className="text-3xl font-black text-slate-900 italic tracking-tighter">Forge Provision.</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Configure society maintenance quota</p>
+                </div>
+                <button onClick={() => setShowModal(false)} className="p-4 bg-slate-50 text-slate-400 hover:text-slate-900 rounded-[1.5rem] transition-all">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-12 space-y-10 pb-12">
+                <BillForm onSubmit={handleGenerate} />
+              </div>
+
+              <div className="p-12 border-t border-slate-50 bg-slate-50 text-center">
+                <p className="text-[10px] text-slate-300 font-black uppercase tracking-[0.4em]">Revenue Protocol 2026.IV</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
-}
+};
+
+/* Bill Form Component */
+const BillForm = ({ onSubmit }) => {
+  const [formData, setFormData] = useState({ month: '', amount: '', dueDate: '', notes: '' });
+
+  return (
+    <div className="space-y-8">
+      <div className="space-y-3">
+        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 block ml-4">Vector Month (Cycle)</label>
+        <input
+          placeholder="e.g. September 2026"
+          className="w-full px-8 py-5 bg-slate-50 border-transparent rounded-[2rem] focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-50 font-black text-sm tracking-tight transition-all"
+          onChange={(e) => setFormData({ ...formData, month: e.target.value })}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 block ml-4">Quota Magnitude (₹)</label>
+        <div className="relative">
+          <span className="absolute left-8 top-1/2 -translate-y-1/2 font-black text-slate-300 text-lg italic">₹</span>
+          <input
+            type="number"
+            placeholder="0.00"
+            className="w-full pl-14 pr-8 py-5 bg-slate-50 border-transparent rounded-[2rem] focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-50 font-black text-sm tracking-tight transition-all"
+            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 block ml-4">Timeline Maturity (Due Date)</label>
+        <input
+          type="date"
+          className="w-full px-8 py-5 bg-slate-50 border-transparent rounded-[2rem] focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-50 font-black text-sm transition-all cursor-pointer"
+          onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 block ml-4">Protocol Directives (Notes)</label>
+        <textarea
+          rows={4}
+          placeholder="Memorandum for this billing cycle..."
+          className="w-full px-8 py-5 bg-slate-50 border-transparent rounded-[2rem] focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-50 font-black text-sm tracking-tight transition-all resize-none"
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+        />
+      </div>
+
+      <div className="pt-6">
+        <button
+          onClick={() => onSubmit(formData)}
+          className="w-full py-6 bg-slate-900 text-white rounded-[2.5rem] font-black uppercase tracking-[0.3em] text-sm shadow-2xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-4 group"
+        >
+          Initialize Provision <Zap size={20} className="group-hover:animate-pulse" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export default Maintenance;

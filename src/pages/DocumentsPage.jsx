@@ -1,9 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth } from 'firebase/auth';
-import { useCollection, useAddDocument, useDeleteDocument } from '../hooks/useFirestore';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  FiFileText,
+  FiUpload,
+  FiTrash2,
+  FiEye,
+  FiDownload,
+  FiClock,
+  FiCheckCircle,
+  FiAlertCircle,
+  FiXCircle,
+  FiSearch,
+  FiFilter,
+  FiArchive,
+  FiPlus,
+  FiArrowLeft,
+  FiRefreshCcw,
+  FiInfo
+} from 'react-icons/fi';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { uploadFileToStorage, validateFile, deleteFileFromStorage } from '../utils/storageUtils';
-import { getDocuments, addDocument, deleteDocument, validateDocumentForm, reuploadDocument } from '../utils/firestoreUtils';
+import {
+  getDocuments,
+  addDocument,
+  deleteDocument,
+  validateDocumentForm,
+  reuploadDocument,
+  getArchivedDocuments
+} from '../utils/firestoreUtils';
 import { toast } from 'react-hot-toast';
 
 const DocumentsPage = () => {
@@ -11,9 +38,15 @@ const DocumentsPage = () => {
   const auth = getAuth();
   const user = auth.currentUser;
 
+  const [activeTab, setActiveTab] = useState('active');
   const [documents, setDocuments] = useState([]);
+  const [archivedDocs, setArchivedDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+
   const [formData, setFormData] = useState({
     file: null,
     documentType: '',
@@ -27,8 +60,10 @@ const DocumentsPage = () => {
     startDate: '',
     endDate: '',
     issueDate: '',
-    expiryDate: ''
+    expiryDate: '',
+    description: ''
   });
+
   const [errors, setErrors] = useState({});
   const [reuploadModalOpen, setReuploadModalOpen] = useState(false);
   const [reuploadDoc, setReuploadDoc] = useState(null);
@@ -36,27 +71,37 @@ const DocumentsPage = () => {
     file: null,
     description: ''
   });
-  const [reuploadErrors, setReuploadErrors] = useState({});
 
-  // Fetch user's documents
+  const CATEGORIES = ['All', 'Identity Proof', 'Property Document', 'Agreements', 'Utilities', 'Other'];
+
   useEffect(() => {
     if (user) {
-      const fetchDocuments = async () => {
-        try {
-          const docs = await getDocuments(user.uid);
-          // Filter out documents with status 'pending'
-          const filteredDocs = docs.filter(doc => doc.status !== 'pending');
-          setDocuments(filteredDocs);
-        } catch (error) {
-          console.error('Error fetching documents:', error);
-          toast.error('Failed to load documents');
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchDocuments();
+      loadAllData();
     }
   }, [user]);
+
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+      const [docs, archDocs] = await Promise.all([
+        getDocuments(user.uid),
+        getArchivedDocuments(user.uid)
+      ]);
+      setDocuments(docs);
+      setArchivedDocs(archDocs);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load documents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    setErrors({ ...errors, [name]: null });
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -71,36 +116,8 @@ const DocumentsPage = () => {
     }
   };
 
-  const handleDocumentTypeChange = (e) => {
-    const documentType = e.target.value;
-    // Reset dynamic fields when document type changes
-    setFormData({
-      ...formData,
-      documentType,
-      fullName: '',
-      panNumber: '',
-      aadhaarNumber: '',
-      address: '',
-      passportNumber: '',
-      tenantName: '',
-      landlordName: '',
-      startDate: '',
-      endDate: '',
-      issueDate: '',
-      expiryDate: ''
-    });
-    setErrors({ ...errors, documentType: null });
-  };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-    setErrors({ ...errors, [name]: null });
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     const validationErrors = validateDocumentForm(formData);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -117,14 +134,11 @@ const DocumentsPage = () => {
         status: 'pending'
       };
 
-      // Only upload file if one is selected
       if (formData.file) {
-        // Upload file to storage
         const fileName = `${Date.now()}_${formData.file.name}`;
         const storagePath = `documents/${user.uid}/${fileName}`;
         const downloadURL = await uploadFileToStorage(formData.file, storagePath);
 
-        // Add file-related data to document
         documentData = {
           ...documentData,
           fileName: formData.file.name,
@@ -134,30 +148,15 @@ const DocumentsPage = () => {
       }
 
       await addDocument(documentData);
-      toast.success('Document saved successfully');
+      toast.success('Document submitted for verification');
+      setIsFormOpen(false);
+      loadAllData();
 
-      // Refresh documents
-      const updatedDocs = await getDocuments(user.uid);
-      setDocuments(updatedDocs);
-
-      // Reset form
       setFormData({
-        file: null,
-        documentType: '',
-        fullName: '',
-        panNumber: '',
-        aadhaarNumber: '',
-        address: '',
-        passportNumber: '',
-        tenantName: '',
-        landlordName: '',
-        startDate: '',
-        endDate: '',
-        issueDate: '',
-        expiryDate: '',
-        description: ''
+        file: null, documentType: '', fullName: '', panNumber: '', aadhaarNumber: '',
+        address: '', passportNumber: '', tenantName: '', landlordName: '',
+        startDate: '', endDate: '', issueDate: '', expiryDate: '', description: ''
       });
-      document.getElementById('file-input').value = '';
     } catch (error) {
       console.error('Error saving document:', error);
       toast.error('Failed to save document');
@@ -166,595 +165,392 @@ const DocumentsPage = () => {
     }
   };
 
-  const handleDownload = (doc) => {
-    if (doc.status === 'approved') {
-      window.open(doc.fileURL, '_blank');
-    }
+  const handleDownloadForm = (formTitle) => {
+    toast.success(`${formTitle} will be downloaded. This is a secure template provided by the management.`);
+    setTimeout(() => {
+      window.alert(`Downloading ${formTitle}...\n(In production, this would open a real PDF link)`);
+    }, 500);
   };
+
+  const SOCIETY_FORMS = [
+    { title: 'NOC Request Form', type: 'Official Template', desc: 'Standard form for No Objection Certificate applications.', icon: '📜', id: 'noc-form' },
+    { title: 'Member Rulebook v2.1', type: 'Policy', desc: 'Updated society rules and regulations for 2024.', icon: '📘', id: 'rulebook' },
+    { title: 'Vehicle Permit Blank', type: 'Form', desc: 'Request form for new resident vehicle parking stickers.', icon: '🚗', id: 'vehicle-permit' },
+  ];
 
   const handleDelete = async (doc) => {
-    if (doc.status === 'pending' || doc.status === 'rejected') {
+    if (window.confirm("Delete this document? This cannot be undone.")) {
       try {
-        // Delete from storage
-        await deleteFileFromStorage(doc.storagePath);
-        // Delete from Firestore
+        if (doc.storagePath) await deleteFileFromStorage(doc.storagePath);
         await deleteDocument(doc.id);
-        toast.success('Document deleted successfully');
-
-        // Refresh documents
-        const updatedDocs = await getDocuments(user.uid);
-        setDocuments(updatedDocs);
+        toast.success('Document removed');
+        loadAllData();
       } catch (error) {
-        console.error('Error deleting document:', error);
-        toast.error('Failed to delete document');
+        toast.error('Deletion failed');
       }
     }
   };
 
-  const getStatusBadge = (status) => {
-    const badges = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      approved: 'bg-green-100 text-green-800',
-      rejected: 'bg-red-100 text-red-800'
+  const getStatusConfig = (status) => {
+    const configs = {
+      pending: { color: 'amber', icon: FiClock, label: 'Pending Verification' },
+      approved: { color: 'green', icon: FiCheckCircle, label: 'Verified Official' },
+      rejected: { color: 'red', icon: FiXCircle, label: 'Action Required' }
     };
-    return badges[status] || 'bg-gray-100 text-gray-800';
+    return configs[status] || { color: 'slate', icon: FiInfo, label: status };
   };
 
-  const getExpiryStatus = (expiryDate) => {
-    if (!expiryDate) return { status: 'none', className: '' };
-    const today = new Date();
-    const expiry = new Date(expiryDate);
-    const diffTime = expiry - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) return { status: 'expired', className: 'text-red-600 font-semibold' };
-    if (diffDays <= 30) return { status: 'expiring', className: 'text-yellow-600 font-semibold' };
-    return { status: 'valid', className: 'text-gray-500' };
-  };
-
-  const handleView = (doc) => {
-    window.open(doc.fileURL, '_blank');
-  };
-
-  const handleReupload = (doc) => {
-    setReuploadDoc(doc);
-    setReuploadFormData({
-      file: null,
-      description: doc.description || ''
-    });
-    setReuploadErrors({});
-    setReuploadModalOpen(true);
-  };
-
-  const handleReuploadFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const validationError = validateFile(file);
-      if (validationError) {
-        toast.error(validationError);
-        return;
-      }
-      setReuploadFormData({ ...reuploadFormData, file });
-      setReuploadErrors({ ...reuploadErrors, file: null });
-    }
-  };
-
-  const handleReuploadInputChange = (e) => {
-    const { name, value } = e.target;
-    setReuploadFormData({ ...reuploadFormData, [name]: value });
-    setReuploadErrors({ ...reuploadErrors, [name]: null });
-  };
-
-  const handleReuploadSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!reuploadFormData.file) {
-      setReuploadErrors({ file: 'Please select a file to upload' });
-      return;
-    }
-
-    setUploading(true);
-    try {
-      // Upload new file to storage
-      const fileName = `${Date.now()}_${reuploadFormData.file.name}`;
-      const storagePath = `documents/${user.uid}/${fileName}`;
-      const downloadURL = await uploadFileToStorage(reuploadFormData.file, storagePath);
-
-      // Prepare new document data
-      const newDocumentData = {
-        userId: user.uid,
-        userEmail: user.email,
-        documentType: reuploadDoc.documentType,
-        fileName: reuploadFormData.file.name,
-        fileURL: downloadURL,
-        storagePath,
-        description: reuploadFormData.description,
-        ...reuploadDoc, // Copy other fields from old document
-        status: 'pending' // Reset status to pending
-      };
-
-      // Re-upload document (archive old and add new)
-      await reuploadDocument(reuploadDoc.id, newDocumentData);
-
-      toast.success('Document re-uploaded successfully');
-
-      // Refresh documents
-      const updatedDocs = await getDocuments(user.uid);
-      setDocuments(updatedDocs);
-
-      // Close modal
-      setReuploadModalOpen(false);
-      setReuploadDoc(null);
-    } catch (error) {
-      console.error('Error re-uploading document:', error);
-      toast.error('Failed to re-upload document');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const closeReuploadModal = () => {
-    setReuploadModalOpen(false);
-    setReuploadDoc(null);
-    setReuploadFormData({
-      file: null,
-      description: ''
-    });
-    setReuploadErrors({});
-  };
+  const filteredDocs = (activeTab === 'active' ? documents : archivedDocs).filter(doc => {
+    const matchesSearch = doc.documentType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      doc.fileName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || doc.category === selectedCategory || doc.documentType === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading documents...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-primary border-solid mx-auto"></div>
+          <p className="mt-4 text-slate-500 font-bold animate-pulse">Accessing Secure Vault...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center mb-4">
-            <button
-              onClick={() => navigate(-1)}
-              className="flex items-center text-gray-600 hover:text-gray-900 mr-4"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Back
-            </button>
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-            <span className="text-4xl mr-3">📂</span>
-            Resident Documents
-          </h1>
-          <p className="mt-2 text-gray-600">Upload and manage your personal and society-related documents</p>
-        </div>
-
-        {/* Expiry Alerts */}
-        {documents.length > 0 && (
-          <div className="mb-8">
-            {documents.filter(doc => doc.expiryDate && getExpiryStatus(doc.expiryDate).status === 'expired').length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <span className="text-red-400">⚠️</span>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Expired Documents</h3>
-                    <div className="mt-2 text-sm text-red-700">
-                      <p>The following documents have expired:</p>
-                      <ul className="list-disc list-inside mt-1">
-                        {documents.filter(doc => doc.expiryDate && getExpiryStatus(doc.expiryDate).status === 'expired').map(doc => (
-                          <li key={doc.id}>{doc.fileName}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {documents.filter(doc => doc.expiryDate && getExpiryStatus(doc.expiryDate).status === 'expiring').length > 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <span className="text-yellow-400">⏰</span>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-yellow-800">Documents Expiring Soon</h3>
-                    <div className="mt-2 text-sm text-yellow-700">
-                      <p>The following documents will expire within 30 days:</p>
-                      <ul className="list-disc list-inside mt-1">
-                        {documents.filter(doc => doc.expiryDate && getExpiryStatus(doc.expiryDate).status === 'expiring').map(doc => (
-                          <li key={doc.id}>{doc.fileName} - Expires: {new Date(doc.expiryDate).toLocaleDateString()}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Upload Form */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload New Document</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select File <span className="text-gray-500 text-xs">(Optional)</span>
-              </label>
-              <input
-                id="file-input"
-                type="file"
-                onChange={handleFileChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-              />
-              {errors.file && <p className="mt-1 text-sm text-red-600">{errors.file}</p>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Document Type</label>
-              <select
-                value={formData.documentType}
-                onChange={handleDocumentTypeChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+    <div className="min-h-screen bg-[#F8FAFC]">
+      {/* Header & Sub-header */}
+      <div className="bg-white border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate(-1)}
+                className="p-3 rounded-2xl bg-slate-50 text-slate-400 hover:text-primary transition-all active:scale-95"
               >
-                <option value="">Select Document Type</option>
-                <option value="PAN Card">PAN Card</option>
-                <option value="Aadhaar Card">Aadhaar Card</option>
-                <option value="Passport">Passport</option>
-                <option value="Rent Agreement">Rent Agreement</option>
-              </select>
-              {errors.documentType && <p className="mt-1 text-sm text-red-600">{errors.documentType}</p>}
-            </div>
-
-            {/* Dynamic Fields based on Document Type */}
-            {formData.documentType === 'PAN Card' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                  <input
-                    type="text"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter full name as per PAN card"
-                  />
-                  {errors.fullName && <p className="mt-1 text-sm text-red-600">{errors.fullName}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">PAN Number</label>
-                  <input
-                    type="text"
-                    name="panNumber"
-                    value={formData.panNumber}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter PAN number (e.g., ABCDE1234F)"
-                  />
-                  {errors.panNumber && <p className="mt-1 text-sm text-red-600">{errors.panNumber}</p>}
-                </div>
+                <FiArrowLeft className="w-6 h-6" />
+              </button>
+              <div>
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  Document Vault <span className="text-sm bg-primary/10 text-primary px-3 py-1 rounded-full">Secure</span>
+                </h1>
+                <p className="text-slate-500 font-medium">Manage your verified society credentials</p>
               </div>
-            )}
-
-            {formData.documentType === 'Aadhaar Card' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                  <input
-                    type="text"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter full name as per Aadhaar card"
-                  />
-                  {errors.fullName && <p className="mt-1 text-sm text-red-600">{errors.fullName}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Aadhaar Number</label>
-                  <input
-                    type="text"
-                    name="aadhaarNumber"
-                    value={formData.aadhaarNumber}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter 12-digit Aadhaar number"
-                  />
-                  {errors.aadhaarNumber && <p className="mt-1 text-sm text-red-600">{errors.aadhaarNumber}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-                  <textarea
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    rows="3"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter address as per Aadhaar card"
-                  />
-                  {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address}</p>}
-                </div>
-              </div>
-            )}
-
-            {formData.documentType === 'Passport' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Passport Number</label>
-                  <input
-                    type="text"
-                    name="passportNumber"
-                    value={formData.passportNumber}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter passport number"
-                  />
-                  {errors.passportNumber && <p className="mt-1 text-sm text-red-600">{errors.passportNumber}</p>}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Issue Date</label>
-                    <input
-                      type="date"
-                      name="issueDate"
-                      value={formData.issueDate}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {errors.issueDate && <p className="mt-1 text-sm text-red-600">{errors.issueDate}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date</label>
-                    <input
-                      type="date"
-                      name="expiryDate"
-                      value={formData.expiryDate}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {errors.expiryDate && <p className="mt-1 text-sm text-red-600">{errors.expiryDate}</p>}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {formData.documentType === 'Rent Agreement' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tenant Name</label>
-                  <input
-                    type="text"
-                    name="tenantName"
-                    value={formData.tenantName}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter tenant name"
-                  />
-                  {errors.tenantName && <p className="mt-1 text-sm text-red-600">{errors.tenantName}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Landlord Name</label>
-                  <input
-                    type="text"
-                    name="landlordName"
-                    value={formData.landlordName}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter landlord name"
-                  />
-                  {errors.landlordName && <p className="mt-1 text-sm text-red-600">{errors.landlordName}</p>}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                    <input
-                      type="date"
-                      name="startDate"
-                      value={formData.startDate}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {errors.startDate && <p className="mt-1 text-sm text-red-600">{errors.startDate}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                    <input
-                      type="date"
-                      name="endDate"
-                      value={formData.endDate}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {errors.endDate && <p className="mt-1 text-sm text-red-600">{errors.endDate}</p>}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description <span className="text-gray-500 text-xs">(Optional)</span>
-              </label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                rows="3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter document description"
-              />
-              {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
             </div>
 
             <button
-              type="submit"
-              disabled={uploading}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              onClick={() => setIsFormOpen(!isFormOpen)}
+              className="flex items-center justify-center gap-2 px-8 py-4 bg-primary text-white rounded-2xl font-black shadow-lg shadow-primary/30 hover:shadow-xl hover:translate-y-[-2px] transition-all active:scale-95"
             >
-              {uploading ? 'Uploading...' : 'Upload Document'}
+              {isFormOpen ? <FiXCircle /> : <FiPlus />}
+              {isFormOpen ? 'Close Portal' : 'Upload New Document'}
             </button>
-          </form>
-        </div>
-
-        {/* Documents List */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Your Documents</h2>
           </div>
-
-          {documents.length === 0 ? (
-            <div className="px-6 py-8 text-center text-gray-500">
-              No documents uploaded yet. Upload your first document above.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Document</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Document Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiry Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reject Reason</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {documents.map((doc) => {
-                    const expiryStatus = getExpiryStatus(doc.expiryDate);
-                    return (
-                      <tr key={doc.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {doc.fileName}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{doc.documentType}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {doc.createdAt?.toDate().toLocaleDateString()}
-                        </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${expiryStatus.className}`}>
-                          {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(doc.status)}`}>
-                              {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                            </span>
-                            {doc.status === 'approved' && (
-                              <span className="ml-2 text-green-600">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {doc.rejectReason || 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {doc.status === 'approved' && (
-                            <>
-                              <button
-                                onClick={() => handleView(doc)}
-                                className="text-blue-600 hover:text-blue-900 mr-4"
-                              >
-                                View
-                              </button>
-                              <button
-                                onClick={() => handleDownload(doc)}
-                                className="text-green-600 hover:text-green-900 mr-4"
-                              >
-                                Download
-                              </button>
-                              <button
-                                onClick={() => handleReupload(doc)}
-                                className="text-purple-600 hover:text-purple-900"
-                              >
-                                Re-upload
-                              </button>
-                            </>
-                          )}
-                          {(doc.status === 'pending' || doc.status === 'rejected') && (
-                            <button
-                              onClick={() => handleDelete(doc)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
+      </div>
 
-        {/* Reupload Modal */}
-        {reuploadModalOpen && (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-              <div className="mt-3">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Re-upload Document</h3>
-                <form onSubmit={handleReuploadSubmit}>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Select New File</label>
-                    <input
-                      type="file"
-                      onChange={handleReuploadFileChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                    />
-                    {reuploadErrors.file && <p className="mt-1 text-sm text-red-600">{reuploadErrors.file}</p>}
+      <main className="max-w-7xl mx-auto px-4 py-10">
+        <AnimatePresence>
+          {isFormOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mb-12"
+            >
+              <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden">
+                <div className="bg-gradient-to-r from-primary to-indigo-600 px-10 py-8 text-white">
+                  <h2 className="text-2xl font-black tracking-tight">Direct Submission</h2>
+                  <p className="opacity-80 font-medium">Fill in the details for verification</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-10 space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Document Type Section */}
+                    <div className="space-y-4">
+                      <label className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                        <FiFileText className="text-primary" /> Core Information
+                      </label>
+                      <select
+                        value={formData.documentType}
+                        onChange={(e) => {
+                          handleInputChange(e);
+                          setFormData(prev => ({ ...prev, documentType: e.target.value }));
+                        }}
+                        name="documentType"
+                        className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-slate-50 focus:border-primary focus:bg-white transition-all outline-none font-bold"
+                      >
+                        <option value="">Select Document Type</option>
+                        <option value="PAN Card">PAN Card</option>
+                        <option value="Aadhaar Card">Aadhaar Card</option>
+                        <option value="Passport">Passport</option>
+                        <option value="Rent Agreement">Rent Agreement</option>
+                        <option value="Electricity Bill">Electricity Bill</option>
+                      </select>
+                      {errors.documentType && <p className="text-red-500 text-xs font-bold pl-2">{errors.documentType}</p>}
+
+                      <div className="relative">
+                        <input
+                          id="file-input"
+                          type="file"
+                          onChange={handleFileChange}
+                          className="hidden"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                        />
+                        <label
+                          htmlFor="file-input"
+                          className="flex flex-col items-center justify-center w-full h-32 border-4 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all group"
+                        >
+                          <FiUpload className="w-8 h-8 text-slate-300 group-hover:text-primary transition-colors mb-2" />
+                          <span className="text-sm font-black text-slate-400 group-hover:text-primary">
+                            {formData.file ? formData.file.name : 'Upload File (PDF/JPG)'}
+                          </span>
+                        </label>
+                        {errors.file && <p className="text-red-500 text-xs font-bold pl-2 mt-2">{errors.file}</p>}
+                      </div>
+                    </div>
+
+                    {/* Dynamic Details Section */}
+                    <div className="space-y-4 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
+                      <label className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                        <FiInfo className="text-primary" /> Verification Details
+                      </label>
+
+                      {formData.documentType === 'PAN Card' && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                          <input type="text" name="fullName" placeholder="Full Name as on PAN" value={formData.fullName} onChange={handleInputChange} className="w-full p-4 rounded-xl border border-slate-200" />
+                          <input type="text" name="panNumber" placeholder="PAN Number (ABCDE1234F)" value={formData.panNumber} onChange={handleInputChange} className="w-full p-4 rounded-xl border border-slate-200" />
+                        </motion.div>
+                      )}
+
+                      {formData.documentType === 'Aadhaar Card' && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                          <input type="text" name="fullName" placeholder="Full Name as on Aadhaar" value={formData.fullName} onChange={handleInputChange} className="w-full p-4 rounded-xl border border-slate-200" />
+                          <input type="text" name="aadhaarNumber" placeholder="12-digit Aadhaar Number" value={formData.aadhaarNumber} onChange={handleInputChange} className="w-full p-4 rounded-xl border border-slate-200" />
+                        </motion.div>
+                      )}
+
+                      {formData.documentType === 'Passport' && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                          <input type="text" name="passportNumber" placeholder="Passport Number" value={formData.passportNumber} onChange={handleInputChange} className="w-full p-4 rounded-xl border border-slate-200" />
+                          <div className="grid grid-cols-2 gap-4">
+                            <input type="date" name="issueDate" value={formData.issueDate} onChange={handleInputChange} className="p-4 rounded-xl border border-slate-200 text-sm" />
+                            <input type="date" name="expiryDate" value={formData.expiryDate} onChange={handleInputChange} className="p-4 rounded-xl border border-slate-200 text-sm" />
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {!formData.documentType && (
+                        <div className="h-full flex items-center justify-center text-slate-300 italic py-10">
+                          Select a document type to enter specific details
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                    <textarea
-                      name="description"
-                      value={reuploadFormData.description}
-                      onChange={handleReuploadInputChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter document description"
-                    />
-                  </div>
-                  <div className="flex justify-end space-x-3">
-                    <button
-                      type="button"
-                      onClick={closeReuploadModal}
-                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={uploading}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {uploading ? 'Uploading...' : 'Re-upload'}
-                    </button>
-                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={uploading}
+                    className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-black transition-all disabled:opacity-50"
+                  >
+                    {uploading ? 'Processing Securely...' : 'Certify & Submit'}
+                  </button>
                 </form>
               </div>
-            </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Filters & Tabs */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-10">
+          <div className="flex p-1.5 bg-white rounded-2xl shadow-sm border border-slate-100 w-fit">
+            {[
+              { id: 'active', label: 'My Vault', icon: FiFileText },
+              { id: 'forms', label: 'Society Forms', icon: FiSearch },
+              { id: 'archive', label: 'History', icon: FiArchive },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === tab.id
+                  ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                  : 'text-slate-500 hover:text-slate-900'
+                  }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+
+          <div className="flex flex-col md:flex-row items-center gap-4 flex-1 max-w-2xl">
+            <div className="relative flex-1 w-full">
+              <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search by name or type..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full py-3.5 pl-12 pr-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+              />
+            </div>
+            <select
+              className="w-full md:w-48 py-3.5 px-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold text-slate-600"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Document Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <AnimatePresence>
+            {activeTab === 'forms' ? (
+              <motion.div
+                key="society-forms-vault"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 col-span-full"
+              >
+                {SOCIETY_FORMS.map((form, i) => (
+                  <motion.div
+                    key={i}
+                    layout
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group"
+                  >
+                    <div className="w-16 h-16 rounded-3xl bg-slate-50 flex items-center justify-center text-4xl mb-6 group-hover:scale-110 transition-transform">
+                      {form.icon}
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">{form.title}</h3>
+                    <p className="text-primary text-xs font-black uppercase tracking-widest mb-4">{form.type}</p>
+                    <p className="text-slate-500 text-sm mb-6 leading-relaxed">{form.desc}</p>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadForm(form.title)}
+                      className="w-full py-4 bg-slate-50 text-slate-900 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-slate-900 hover:text-white transition-all"
+                    >
+                      <FiDownload /> Download Template
+                    </button>
+                  </motion.div>
+                ))}
+              </motion.div>
+            ) : filteredDocs.length === 0 ? (
+              <div className="col-span-full py-32 text-center bg-white rounded-[3rem] border-4 border-dashed border-slate-100">
+                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <FiArchive className="w-10 h-10 text-slate-300" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 mb-2">Safe & Empty</h3>
+                <p className="text-slate-500 font-medium">No documents found matching your current view</p>
+              </div>
+            ) : (
+              filteredDocs.map((doc) => {
+                const config = getStatusConfig(doc.status);
+                const StatusIcon = config.icon;
+
+                return (
+                  <motion.div
+                    layout
+                    key={doc.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-[2rem] overflow-hidden border border-slate-100 shadow-sm hover:shadow-2xl transition-all group flex flex-col"
+                  >
+                    {/* Status Top Bar */}
+                    <div className={`px-6 py-3 bg-${config.color}-50 flex items-center justify-between`}>
+                      <span className={`flex items-center gap-1.5 text-${config.color}-600 text-xs font-black uppercase tracking-wider`}>
+                        <StatusIcon className="w-3.5 h-3.5" /> {config.label}
+                      </span>
+                      {doc.expiryDate && (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                          <FiClock /> Exp: {new Date(doc.expiryDate).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-8 flex-1">
+                      <div className="flex items-start justify-between mb-6">
+                        <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-primary border border-slate-100">
+                          <FiFileText className="w-7 h-7" />
+                        </div>
+                        <div className="flex gap-1">
+                          {doc.fileURL && (
+                            <button
+                              onClick={() => window.open(doc.fileURL, '_blank')}
+                              className="p-2.5 rounded-xl bg-slate-50 text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
+                            >
+                              <FiEye />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(doc)}
+                            className="p-2.5 rounded-xl bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                          >
+                            <FiTrash2 />
+                          </button>
+                        </div>
+                      </div>
+
+                      <h3 className="text-xl font-bold text-slate-900 mb-1 group-hover:text-primary transition-colors">{doc.documentType}</h3>
+                      <p className="text-slate-400 text-sm font-bold mb-4 line-clamp-1">{doc.fileName || 'Data-only Record'}</p>
+
+                      {doc.status === 'rejected' && doc.rejectReason && (
+                        <div className="p-3 bg-red-50 rounded-xl mb-4 border border-red-100">
+                          <p className="text-[10px] text-red-600 font-black uppercase mb-1">Feedback from MGMT:</p>
+                          <p className="text-xs text-red-800 font-medium italic">"{doc.rejectReason}"</p>
+                        </div>
+                      )}
+
+                      <div className="space-y-2 mb-8">
+                        {doc.fullName && (
+                          <div className="flex justify-between text-xs font-bold">
+                            <span className="text-slate-400">HOLDER</span>
+                            <span className="text-slate-700">{doc.fullName}</span>
+                          </div>
+                        )}
+                        {doc.panNumber && (
+                          <div className="flex justify-between text-xs font-bold">
+                            <span className="text-slate-400">PAN ID</span>
+                            <span className="text-slate-700">{doc.panNumber.substring(0, 5)}****{doc.panNumber.slice(-1)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-6 bg-slate-50/50 border-t border-slate-50 mt-auto">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-slate-100 text-[10px] font-black">
+                            {user.email?.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resident Doc</span>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            if (doc.status === 'rejected') {
+                              // Re-upload logic would go here
+                              toast.info("Please use upload new document to replace rejected records.");
+                            }
+                          }}
+                          className="p-2 rounded-lg bg-white shadow-sm text-slate-400 hover:text-primary hover:scale-110 transition-all"
+                        >
+                          <FiRefreshCcw className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
+          </AnimatePresence>
+        </div>
+      </main>
     </div>
   );
 };

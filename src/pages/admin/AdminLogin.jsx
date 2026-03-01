@@ -3,172 +3,190 @@ import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { FiMail, FiLock, FiEye, FiEyeOff, FiShield } from "react-icons/fi";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  FiMail,
+  FiLock,
+  FiEye,
+  FiEyeOff,
+  FiShield,
+  FiArrowRight,
+  FiCpu,
+  FiActivity,
+  FiTerminal
+} from "react-icons/fi";
+import { toast, Toaster } from "react-hot-toast";
 
 const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    setError("");
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Check if user has admin role
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       const userData = userDoc.data();
 
       if (userData?.role === 'admin') {
-        // Set admin session flag for backward compatibility
         localStorage.setItem('adminLoggedIn', 'true');
         localStorage.setItem('adminEmail', email);
-
+        toast.success("Admin Session Initialized");
         navigate("/admin");
       } else {
-        setError("Access denied. Admin privileges required.");
-        // Sign out non-admin user
+        toast.error("Access Denied: Administrative Privileges Required");
         await auth.signOut();
       }
     } catch (error) {
-      let errorMessage = "Login failed. Please try again.";
-      switch (error.code) {
-        case "auth/wrong-password":
-        case "auth/user-not-found":
-        case "auth/invalid-credential":
-          errorMessage = "Invalid email or password.";
-          break;
-        case "auth/invalid-email":
-          errorMessage = "Invalid email format.";
-          break;
-        case "auth/user-disabled":
-          errorMessage = "This account has been disabled.";
-          break;
-        case "auth/too-many-requests":
-          errorMessage = "Too many failed login attempts. Please try again later.";
-          break;
-        case "auth/network-request-failed":
-          errorMessage = "Network error. Please check your connection.";
-          break;
-        default:
-          errorMessage = `Login failed: ${error.message}`;
-      }
-      setError(errorMessage);
+      toast.error("Authentication Sequence Failed");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-red-900 to-slate-900">
-      <div className="relative">
-        {/* Background blur effects */}
-        <div className="absolute inset-0 bg-gradient-to-r from-red-500/20 to-purple-500/20 blur-3xl"></div>
+    <div className="min-h-screen flex items-center justify-center bg-[#fafafa] relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+      <Toaster position="top-center" />
 
-        <div className="relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl">
-          {/* Logo/Brand */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-red-400 to-purple-500 rounded-2xl mb-4">
-              <FiShield className="text-2xl text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Admin Portal</h1>
-            <p className="text-gray-300 text-sm">Secure access for administrators</p>
+      {/* Executive Backdrop - Sharp and Clean */}
+      <div className="absolute inset-0 opacity-[0.02] pointer-events-none" style={{ backgroundImage: 'linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_0%_0%,rgba(244,63,94,0.03),transparent)]" />
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="relative z-10 w-full max-w-[1000px] flex items-stretch p-4"
+      >
+        {/* Left Side: Admin Terminal Section */}
+        <div className="hidden lg:flex flex-1 bg-slate-900 rounded-[3rem] p-12 flex-col justify-between shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-8">
+            <FiTerminal className="text-slate-700 text-4xl" />
           </div>
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <p className="text-red-300 text-sm text-center">{error}</p>
+          <div className="relative z-10">
+            <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-rose-500/20 mb-10">
+              <FiShield className="text-white text-3xl" />
             </div>
-          )}
-
-          {/* Admin Credentials Info */}
-          <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-            <p className="text-blue-300 text-sm text-center">
-              <strong>Admin Credentials:</strong><br />
-              Email: admin@smartsociety.dev<br />
-              Password: Admin123!
+            <h2 className="text-5xl font-black text-white leading-tight mb-6 tracking-tighter">
+              Executive <br />
+              <span className="text-rose-500">Command Center.</span>
+            </h2>
+            <p className="text-slate-400 text-lg max-w-sm leading-relaxed font-medium">
+              High-security gateway for society management and infrastructure control.
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            {/* Email Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Admin Email Address</label>
-              <div className="relative">
-                <FiMail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input
-                  type="email"
-                  placeholder="Enter admin email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400/50 transition-all"
-                  required
-                />
+          <div className="space-y-4 relative z-10">
+            <div className="inline-flex items-center gap-4 px-6 py-4 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
+              <FiCpu className="text-rose-400" />
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">System Integrity: 100%</span>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="flex flex-col">
+                <span className="text-2xl font-black text-white">2.4ms</span>
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Latency</span>
               </div>
-            </div>
-
-            {/* Password Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 block">Admin Password</label>
-              <div className="relative">
-                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter admin password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400/50 transition-all"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                >
-                  {showPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
-                </button>
+              <div className="w-[1px] h-8 bg-white/10" />
+              <div className="flex flex-col">
+                <span className="text-2xl font-black text-white">TLS 1.3</span>
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Protocol</span>
               </div>
-            </div>
-
-            {/* Login Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-red-500 to-purple-500 text-white font-semibold py-3 px-4 rounded-lg hover:from-red-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-red-400/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              {isLoading ? "Authenticating..." : "Admin Login"}
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/10"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-transparent text-gray-400">or</span>
             </div>
           </div>
-
-          {/* Back to User Login Link */}
-          <p className="text-center text-gray-300">
-            Not an administrator?{" "}
-            <button
-              onClick={() => navigate("/login")}
-              className="text-red-400 hover:text-red-300 font-medium transition-colors"
-            >
-              User Login
-            </button>
-          </p>
         </div>
-      </div>
+
+        {/* Right Side: Admin Login Form */}
+        <div className="w-full lg:w-[420px] lg:ml-12 flex flex-col justify-center">
+          <div className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50">
+            <div className="mb-10 text-center lg:text-left">
+              <div className="lg:hidden inline-flex w-12 h-12 bg-rose-500 rounded-xl items-center justify-center text-white mb-6">
+                <FiShield size={24} />
+              </div>
+              <h1 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Admin Override</h1>
+              <p className="text-slate-400 text-sm font-medium">Verify administrative credentials to enter.</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Admin Registry ID</label>
+                <div className="relative group">
+                  <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-rose-500 transition-colors" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-slate-900 placeholder-slate-300 focus:outline-none focus:ring-4 focus:ring-rose-500/5 focus:border-rose-500 transition-all font-medium"
+                    placeholder="admin@smartsociety.os"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Access Keycode</label>
+                <div className="relative group">
+                  <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-rose-500 transition-colors" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 text-slate-900 placeholder-slate-300 focus:outline-none focus:ring-4 focus:ring-rose-500/5 focus:border-rose-500 transition-all font-medium"
+                    placeholder="••••••••"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600 transition-colors"
+                  >
+                    {showPassword ? <FiEyeOff /> : <FiEye />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-rose-500/20 flex items-center justify-center gap-3 group transition-all active:scale-[0.98] disabled:opacity-50 mt-4"
+              >
+                {isLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span className="uppercase tracking-widest text-[10px]">Initialize Admin Session</span>
+                    <FiArrowRight className="group-hover:translate-x-1 transition-transform" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-8 pt-8 border-t border-slate-50 flex flex-col gap-4">
+              {/* Dev Credentials info for ease of use during development */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                <div className="flex items-center gap-2 mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <FiActivity className="text-rose-500" /> System Debug
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium">Email: <span className="text-slate-900 select-all">admin@smartsociety.dev</span></p>
+                <p className="text-[10px] text-slate-500 font-medium">Pass: <span className="text-slate-900 select-all">Admin123!</span></p>
+              </div>
+
+              <button
+                onClick={() => navigate("/login")}
+                className="text-center text-[10px] font-black text-slate-300 hover:text-indigo-600 transition-colors uppercase tracking-[0.3em]"
+              >
+                Back to Resident Portal
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 };

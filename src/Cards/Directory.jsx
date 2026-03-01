@@ -1,29 +1,33 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import useUserRole from "../hooks/useUserRole";
-import { FiSearch, FiSun, FiMoon, FiDownload, FiPlus, FiGrid, FiList } from "react-icons/fi";
-
-/**
- * Directory.jsx
- * Upgraded Society Directory component (cards + table, filters, add drawer, exports)
- *
- * Requirements:
- * - Tailwind CSS
- * - framer-motion
- * - useUserRole hook in ../hooks/useUserRole (returns { role } or similar)
- *
- * Drop into your routes and import like: import Directory from './pages/Directory';
- */
-
-const sampleContacts = [
-  { name: "Harshad Patel", designation: "Watchman", phone: "9876543210", email: "harshad@watchman.com" },
-  { name: "Peter Parker", designation: "Security Guard", phone: "9876543211", email: "peter@security.com" },
-  { name: "Ravi Kumar", designation: "Manager", phone: "9876543212", email: "ravi.kumar@manager.com" },
-  { name: "Anjali Singh", designation: "Cleaner", phone: "9876543213", email: "anjali.singh@cleaner.com" },
-  { name: "Vikram Sharma", designation: "Electrician", phone: "9876543214", email: "vikram.sharma@electrician.com" },
-  { name: "Priya Patel", designation: "Plumber", phone: "9876543215", email: "priya.patel@plumber.com" },
-];
+import {
+  Users,
+  Search,
+  Search as FiSearch,
+  Sun,
+  Moon,
+  Download,
+  Plus,
+  Grid,
+  List,
+  Phone,
+  Mail,
+  User,
+  Shield,
+  Trash2,
+  X,
+  Filter,
+  CheckCircle,
+  AlertCircle,
+  MoreVertical,
+  Activity,
+  ChevronRight
+} from "lucide-react";
+import { db, auth } from "../firebase";
+import { collection, onSnapshot, query, addDoc, deleteDoc, doc, serverTimestamp, orderBy } from "firebase/firestore";
+import { toast, Toaster } from "react-hot-toast";
 
 const avatarColors = [
   "from-indigo-500 to-indigo-700",
@@ -36,399 +40,256 @@ const avatarColors = [
 
 const Directory = () => {
   const navigate = useNavigate();
-  const { role } = useUserRole(); // expects { role } — 'admin' or 'resident' etc.
-  const [contacts, setContacts] = useState(sampleContacts);
+  const { role } = useUserRole();
+  const [contacts, setContacts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterRole, setFilterRole] = useState("");
-  const [sortAsc, setSortAsc] = useState(true);
-  const [viewMode, setViewMode] = useState("cards"); // 'cards' or 'table'
-  const [darkMode, setDarkMode] = useState(false);
+  const [filterRole, setFilterRole] = useState("All");
+  const [viewMode, setViewMode] = useState("grid");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", designation: "", phone: "", email: "" });
-  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  useEffect(() => {
+    const q = query(collection(db, "directory"), orderBy("name", "asc"));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setContacts(list);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const roles = useMemo(() => {
     const setRoles = new Set(contacts.map((c) => c.designation));
-    return Array.from(setRoles);
+    return ["All", ...Array.from(setRoles)];
   }, [contacts]);
 
-  const totalContacts = contacts.length;
-  const departments = roles.length;
-
-  // Derived filtered + sorted
   const filteredContacts = useMemo(() => {
-    const q = contacts
-      .filter((c) => {
-        const matchesSearch =
-          !search ||
-          c.name.toLowerCase().includes(search.toLowerCase()) ||
-          c.designation.toLowerCase().includes(search.toLowerCase()) ||
-          c.phone.includes(search) ||
-          c.email.toLowerCase().includes(search.toLowerCase());
-        const matchesRole = !filterRole || c.designation === filterRole;
-        return matchesSearch && matchesRole;
-      })
-      .sort((a, b) => (sortAsc ? a.designation.localeCompare(b.designation) : b.designation.localeCompare(a.designation)));
-    return q;
-  }, [contacts, search, filterRole, sortAsc]);
+    return contacts.filter((c) => {
+      const matchesSearch =
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.designation.toLowerCase().includes(search.toLowerCase());
+      const matchesRole = filterRole === "All" || c.designation === filterRole;
+      return matchesSearch && matchesRole;
+    });
+  }, [contacts, search, filterRole]);
 
-  // Avatar helper
+  const handleAddContact = async (e) => {
+    e.preventDefault();
+    if (!newContact.name || !newContact.designation) {
+      toast.error("Name and Designation required");
+      return;
+    }
+    try {
+      await addDoc(collection(db, "directory"), {
+        ...newContact,
+        timestamp: serverTimestamp(),
+      });
+      toast.success("Contact added to directory");
+      setDrawerOpen(false);
+      setNewContact({ name: "", designation: "", phone: "", email: "" });
+    } catch (err) {
+      toast.error("Failed to add contact");
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this contact?")) return;
+    try {
+      await deleteDoc(doc(db, "directory", id));
+      toast.success("Contact removed");
+    } catch (err) {
+      toast.error("Failed to delete");
+    }
+  };
+
   const getInitials = (name = "") =>
-    name
-      .split(" ")
-      .map((p) => p[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase();
+    name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 
   const getAvatarClass = (name = "") => {
     const idx = (name?.length || 0) % avatarColors.length;
     return avatarColors[idx];
   };
 
-  // Add contact (admin only)
-  const handleAddContact = () => {
-    if (!newContact.name.trim() || !newContact.designation.trim()) {
-      alert("Please provide at least name and designation.");
-      return;
-    }
-    const email = newContact.email?.trim();
-    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
-      alert("Please provide a valid email or leave it empty.");
-      return;
-    }
-    if (newContact.phone && !/^[0-9+ -]{6,}$/.test(newContact.phone)) {
-      alert("Please provide a valid phone number or leave it empty.");
-      return;
-    }
-
-    const contact = {
-      id: Date.now().toString(),
-      name: newContact.name.trim(),
-      designation: newContact.designation.trim(),
-      phone: newContact.phone.trim(),
-      email: newContact.email.trim(),
-    };
-    setContacts((prev) => [contact, ...prev]);
-    setNewContact({ name: "", designation: "", phone: "", email: "" });
-    setDrawerOpen(false);
-  };
-
-  const handleDelete = (email) => {
-    if (!confirm("Delete this contact?")) return;
-    setContacts((prev) => prev.filter((c) => c.email !== email));
-  };
-
-  // Exports
-  const handleExportCSV = () => {
-    const header = ["Name", "Designation", "Phone", "Email"];
-    const rows = contacts.map((c) => [c.name, c.designation, c.phone, c.email]);
-    const csvContent = [header, ...rows].map((r) => r.map((v) => `"${(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `directory_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportJSON = () => {
-    const blob = new Blob([JSON.stringify(contacts, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `directory_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Selection for bulk actions
-  const toggleSelect = (email) => {
-    setSelectedIds((prev) => {
-      const copy = new Set(prev);
-      if (copy.has(email)) copy.delete(email);
-      else copy.add(email);
-      return copy;
-    });
-  };
-
-  const clearSelection = () => setSelectedIds(new Set());
-
-  const handleBulkDelete = () => {
-    if (selectedIds.size === 0) return alert("No contacts selected");
-    if (!confirm(`Delete ${selectedIds.size} contacts? This cannot be undone.`)) return;
-    setContacts((prev) => prev.filter((c) => !selectedIds.has(c.email)));
-    clearSelection();
-  };
-
-  // small motion variants
-  const cardVariants = {
-    hidden: { opacity: 0, y: 8 },
-    visible: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: -8 },
-  };
-
   return (
-    <div className={`${darkMode ? "dark" : ""} min-h-screen p-6 bg-gradient-to-br from-slate-50 to-white`}>
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20 transition-colors duration-300">
+      <Toaster position="top-right" />
 
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-pink-600">
-              Society Directory
-            </h1>
-            <p className="mt-1 text-sm text-gray-600">Quickly find staff & service providers — call or email with one click.</p>
-            <div className="mt-3 flex items-center gap-3 text-sm text-gray-600">
-              <span className="px-3 py-1 rounded-full bg-gray-100">{totalContacts} contacts</span>
-              <span className="px-3 py-1 rounded-full bg-gray-100">{departments} departments</span>
-              <span className="px-3 py-1 rounded-full bg-gray-100">Last updated: {new Date().toLocaleDateString()}</span>
+      {/* Dynamic Header Overlay */}
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b dark:border-slate-800 sticky top-0 z-30 h-24 flex items-center shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 w-full flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+              <Users size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-slate-900 dark:text-white leading-none">Society Directory</h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Staff & Service Providers</p>
             </div>
           </div>
 
-          {/* Controls */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center bg-white border rounded-lg px-3 py-2 shadow-sm">
-              <FiSearch className="text-gray-400 mr-2" />
+            <div className="relative hidden md:block">
+              <FiSearch size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
+                type="text"
+                placeholder="Search contacts..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, role, phone, email..."
-                className="outline-none text-sm w-64"
+                className="bg-slate-100 dark:bg-slate-800 border-none rounded-2xl py-3 pl-12 pr-4 text-sm font-bold w-64 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
               />
-              {search && (
-                <button onClick={() => setSearch("")} className="ml-2 text-xs text-gray-500">Clear</button>
-              )}
             </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setViewMode("cards")}
-                className={`px-3 py-2 rounded-lg ${viewMode === "cards" ? "bg-indigo-600 text-white" : "bg-white border"}`}
-                aria-pressed={viewMode === "cards"}
-                title="Card view"
-              >
-                <FiGrid />
-              </button>
-              <button
-                onClick={() => setViewMode("table")}
-                className={`px-3 py-2 rounded-lg ${viewMode === "table" ? "bg-indigo-600 text-white" : "bg-white border"}`}
-                aria-pressed={viewMode === "table"}
-                title="Table view"
-              >
-                <FiList />
-              </button>
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button onClick={() => setViewMode("grid")} className={`p-2 rounded-lg transition-all ${viewMode === "grid" ? "bg-white dark:bg-slate-700 shadow text-indigo-600" : "text-slate-500"}`}><Grid size={18} /></button>
+              <button onClick={() => setViewMode("list")} className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-white dark:bg-slate-700 shadow text-indigo-600" : "text-slate-500"}`}><List size={18} /></button>
             </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSortAsc((s) => !s)}
-                className="px-3 py-2 bg-white border rounded-lg text-sm"
-                title="Toggle sort"
-              >
-                Sort {sortAsc ? "A→Z" : "Z→A"}
-              </button>
-
-              <button onClick={handleExportCSV} className="px-3 py-2 bg-white border rounded-lg text-sm flex items-center gap-2">
-                <FiDownload /> CSV
-              </button>
-
-              <button onClick={handleExportJSON} className="px-3 py-2 bg-white border rounded-lg text-sm flex items-center gap-2">
-                <FiDownload /> JSON
-              </button>
-
-              <button onClick={() => setDarkMode((d) => !d)} className="px-3 py-2 bg-white border rounded-lg" title="Toggle theme">
-                {darkMode ? <FiSun /> : <FiMoon />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Filter chips + Bulk actions */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setFilterRole("")}
-              className={`px-3 py-1 rounded-lg ${filterRole === "" ? "bg-indigo-600 text-white" : "bg-gray-100"}`}
-            >
-              All
-            </button>
-            {roles.map((r, i) => (
-              <button
-                key={r}
-                onClick={() => setFilterRole((prev) => (prev === r ? "" : r))}
-                className={`px-3 py-1 rounded-lg ${filterRole === r ? "bg-indigo-600 text-white" : "bg-gray-100"}`}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {selectedIds.size > 0 && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="px-2 py-1 bg-yellow-100 rounded">Selected: {selectedIds.size}</span>
-                {role === "admin" && (
-                  <button onClick={handleBulkDelete} className="px-3 py-1 bg-red-600 text-white rounded">Delete Selected</button>
-                )}
-                <button onClick={clearSelection} className="px-3 py-1 bg-gray-100 rounded">Clear</button>
-              </div>
-            )}
-
-            {role === "admin" && (
-              <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg">
-                <FiPlus /> Add Contact
+            {role === 'admin' && (
+              <button onClick={() => setDrawerOpen(true)} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+                <Plus size={16} /> <span>Add</span>
               </button>
             )}
           </div>
-        </div>
-
-        {/* Main content area */}
-        <div className="grid grid-cols-1 gap-6">
-          {viewMode === "cards" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <AnimatePresence>
-                {filteredContacts.map((c) => (
-                  <motion.div
-                    key={c.email || c.name}
-                    layout
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    variants={cardVariants}
-                    className="bg-white rounded-2xl shadow p-4 relative border"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${getAvatarClass(c.name)} flex items-center justify-center text-white font-semibold text-lg`}>
-                        {getInitials(c.name)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="font-bold text-gray-800">{c.name}</h3>
-                            <p className="text-sm text-gray-500">{c.designation}</p>
-                          </div>
-                          <div className="text-sm text-gray-400">{/* small placeholder */}</div>
-                        </div>
-
-                        <div className="mt-3 flex items-center gap-2 text-sm">
-                          <a href={`tel:${c.phone}`} className="px-3 py-1 bg-gray-100 rounded-full hover:bg-gray-200">Call</a>
-                          <a href={`mailto:${c.email}`} className="px-3 py-1 bg-gray-100 rounded-full hover:bg-gray-200">Email</a>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* selection & admin actions */}
-                    <div className="absolute top-3 right-3 flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(c.email)}
-                        onChange={() => toggleSelect(c.email)}
-                        className="h-4 w-4"
-                        aria-label={`Select ${c.name}`}
-                      />
-                    </div>
-
-                    {role === "admin" && (
-                      <div className="mt-4 flex items-center justify-between">
-                        <button onClick={() => handleDelete(c.email)} className="text-red-600 text-sm">Delete</button>
-                        {/* optionally more admin actions */}
-                      </div>
-                    )}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl shadow overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-sm">Select</th>
-                      <th className="px-4 py-3 text-left text-sm">Name</th>
-                      <th className="px-4 py-3 text-left text-sm">Designation</th>
-                      <th className="px-4 py-3 text-left text-sm">Phone</th>
-                      <th className="px-4 py-3 text-left text-sm">Email</th>
-                      {role === "admin" && <th className="px-4 py-3 text-left text-sm">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-100">
-                    {filteredContacts.map((c) => (
-                      <tr key={c.email}>
-                        <td className="px-4 py-3">
-                          <input type="checkbox" checked={selectedIds.has(c.email)} onChange={() => toggleSelect(c.email)} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarClass(c.name)} flex items-center justify-center text-white font-semibold text-sm`}>
-                              {getInitials(c.name)}
-                            </div>
-                            <div>
-                              <div className="font-semibold">{c.name}</div>
-                              <div className="text-xs text-gray-500 hidden sm:block">{c.designation}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm">{c.designation}</td>
-                        <td className="px-4 py-3 text-sm"><a className="text-indigo-600" href={`tel:${c.phone}`}>{c.phone}</a></td>
-                        <td className="px-4 py-3 text-sm"><a className="text-indigo-600" href={`mailto:${c.email}`}>{c.email}</a></td>
-                        {role === "admin" && (
-                          <td className="px-4 py-3 text-sm">
-                            <button onClick={() => handleDelete(c.email)} className="text-red-600">Delete</button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Drawer for adding contact (admin) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+
+        {/* Filter Toolbar */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 scrollbar-hide">
+          {roles.map((r) => (
+            <button
+              key={r}
+              onClick={() => setFilterRole(r)}
+              className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border dark:border-slate-800 ${filterRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl shadow-indigo-500/20' : 'bg-white dark:bg-slate-900 text-slate-500 hover:border-indigo-300'}`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="py-20 flex flex-col items-center gap-4">
+            <Activity className="animate-spin text-indigo-600" size={48} />
+            <p className="text-xs font-black uppercase tracking-widest text-indigo-600">Compiling Directory...</p>
+          </div>
+        ) : (
+          <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" : "space-y-4"}>
+            <AnimatePresence>
+              {filteredContacts.length === 0 ? (
+                <div className="col-span-full py-20 text-center bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+                  <User size={64} className="mx-auto text-slate-200 mb-6" />
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white">No Contacts Match</h3>
+                  <p className="text-slate-500 font-bold mt-2 uppercase text-[10px] tracking-widest">Refine your search or filter criteria</p>
+                </div>
+              ) : (
+                filteredContacts.map((c) => (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    key={c.id}
+                    className={viewMode === 'grid'
+                      ? "group bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border dark:border-slate-800 shadow-sm hover:shadow-2xl transition-all duration-500 relative flex flex-col items-center text-center overflow-hidden"
+                      : "group bg-white dark:bg-slate-900 rounded-3xl p-5 border dark:border-slate-800 flex items-center justify-between hover:shadow-xl transition-all"}
+                  >
+                    <div className={viewMode === 'grid' ? "mb-6" : "flex items-center gap-4"}>
+                      <div className={`shadow-xl ring-4 ring-white dark:ring-slate-800 rounded-full bg-gradient-to-br ${getAvatarClass(c.designation)} flex items-center justify-center text-white font-black 
+                                        ${viewMode === 'grid' ? 'w-24 h-24 text-2xl' : 'w-12 h-12 text-sm'}`}>
+                        {c.designation[0].toUpperCase()}
+                      </div>
+                      {viewMode === 'list' && (
+                        <div className="text-left">
+                          <h3 className="font-black text-slate-800 dark:text-white uppercase tracking-widest text-base">{c.designation}</h3>
+                          <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest opacity-60">Verified Support</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {viewMode === 'grid' && (
+                      <>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase italic tracking-tighter mb-1">{c.designation}</h3>
+                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-6">Society Staff Account</p>
+
+                        <div className="w-full space-y-3 mb-8">
+                          <a href={`tel:${c.phone}`} className="flex items-center justify-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 hover:text-indigo-600 transition-all font-bold text-sm">
+                            <Phone size={16} /> {c.phone}
+                          </a>
+                          <a href={`mailto:${c.email}`} className="flex items-center justify-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-600 dark:text-slate-300 hover:bg-slate-900 hover:text-white dark:hover:bg-white dark:hover:text-slate-900 transition-all font-bold text-sm">
+                            <Mail size={16} /> Contact Support
+                          </a>
+                        </div>
+                      </>
+                    )}
+
+                    {viewMode === 'list' && (
+                      <div className="flex items-center gap-6">
+                        <div className="hidden md:flex flex-col text-right">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Phone</p>
+                          <p className="text-sm font-black text-slate-800 dark:text-white">{c.phone}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <a href={`tel:${c.phone}`} className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Phone size={16} /></a>
+                          <a href={`mailto:${c.email}`} className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:bg-slate-900 hover:text-white transition-all"><Mail size={16} /></a>
+                        </div>
+                      </div>
+                    )}
+
+                    {role === 'admin' && (
+                      <button
+                        onClick={() => handleDelete(c.id)}
+                        className={viewMode === 'grid'
+                          ? "absolute top-5 right-5 p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                          : "p-3 text-slate-300 hover:text-red-500 ml-2"}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+      {/* Drawer */}
       <AnimatePresence>
         {drawerOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40"
-          >
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed bottom-0 left-0 right-0 md:left-1/4 md:right-1/4 bg-white rounded-t-2xl shadow-2xl p-6 z-50 border"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Add New Contact</h3>
-                <button onClick={() => setDrawerOpen(false)} className="text-gray-500">Close</button>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl p-10 overflow-hidden">
+              <div className="absolute top-0 right-0 p-8">
+                <button onClick={() => setDrawerOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={24} /></button>
               </div>
+              <div className="mb-8 font-black uppercase italic tracking-tighter text-3xl text-slate-900 dark:text-white">New Entry</div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input value={newContact.name} onChange={(e) => setNewContact((s) => ({ ...s, name: e.target.value }))} placeholder="Full name" className="p-2 border rounded" />
-                <input value={newContact.designation} onChange={(e) => setNewContact((s) => ({ ...s, designation: e.target.value }))} placeholder="Designation" className="p-2 border rounded" />
-                <input value={newContact.phone} onChange={(e) => setNewContact((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone" className="p-2 border rounded" />
-                <input value={newContact.email} onChange={(e) => setNewContact((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="p-2 border rounded" />
-              </div>
-
-              <div className="mt-4 flex items-center justify-end gap-3">
-                <button onClick={() => setDrawerOpen(false)} className="px-4 py-2 rounded bg-gray-100">Cancel</button>
-                <button onClick={handleAddContact} className="px-4 py-2 rounded bg-indigo-600 text-white">Add Contact</button>
-              </div>
+              <form onSubmit={handleAddContact} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Full Name</label>
+                  <input value={newContact.name} onChange={(e) => setNewContact({ ...newContact, name: e.target.value })} placeholder="e.g. John Wick" className="w-full bg-slate-50 dark:bg-slate-800 p-5 rounded-3xl border-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Designation</label>
+                    <input value={newContact.designation} onChange={(e) => setNewContact({ ...newContact, designation: e.target.value })} placeholder="e.g. Electrician" className="w-full bg-slate-50 dark:bg-slate-800 p-5 rounded-3xl border-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Phone Number</label>
+                    <input value={newContact.phone} onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })} placeholder="+91 XXXX" className="w-full bg-slate-50 dark:bg-slate-800 p-5 rounded-3xl border-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Email (Optional)</label>
+                  <input value={newContact.email} onChange={(e) => setNewContact({ ...newContact, email: e.target.value })} placeholder="john@society.com" className="w-full bg-slate-50 dark:bg-slate-800 p-5 rounded-3xl border-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" />
+                </div>
+                <button type="submit" className="w-full py-5 mt-4 bg-indigo-600 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all">Add to Directory</button>
+              </form>
             </motion.div>
-
-            {/* backdrop */}
-            <div onClick={() => setDrawerOpen(false)} className="fixed inset-0 bg-black/30 z-30" />
-          </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 };
